@@ -7,6 +7,7 @@ yarn-error.log*
 
 # Build outputs
 main.js
+styles.css
 *.tgz
 build-info.json
 versions.json

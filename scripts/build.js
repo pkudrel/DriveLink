@@ -155,6 +155,16 @@ function buildPlugin(production = false) {
 
     try {
         exec(buildCmd);
+
+        // Copy styles.css from src to root after build
+        const srcStyles = path.join(__dirname, '..', 'src', 'styles.css');
+        const destStyles = path.join(__dirname, '..', 'styles.css');
+
+        if (fs.existsSync(srcStyles)) {
+            fs.copyFileSync(srcStyles, destStyles);
+            logSuccess('Copied styles.css to root directory');
+        }
+
         logSuccess('Plugin built successfully');
     } catch (error) {
         logError('Build failed');

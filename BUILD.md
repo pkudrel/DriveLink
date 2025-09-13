@@ -51,12 +51,19 @@ DriveLink/
 ├── manifest.json            # Updated by build script
 ├── versions.json            # Created by build script
 ├── build-info.json          # Build metadata
+├── src/
+│   ├── styles.css          # Source styles (copied to root during build)
+│   └── ...                 # TypeScript source files
 ├── scripts/
 │   ├── build.js            # Main build orchestrator
-│   └── bump-version.js     # Version management utility
-└── .github/actions/semver-js/
-    ├── action.yml          # Semver action definition
-    └── index.js            # Semver logic (reused locally)
+│   ├── bump-version.js     # Version management utility
+│   └── release.js          # Release packaging script
+└── .github/
+    ├── workflows/
+    │   └── release.yml     # Automated release workflow
+    └── actions/semver-js/
+        ├── action.yml      # Semver action definition
+        └── index.js        # Semver logic (reused locally)
 ```
 
 ## Build Process
@@ -77,6 +84,7 @@ DriveLink/
 4. **TypeScript Build**
    - Runs TypeScript type checking
    - Compiles `src/main.ts` → `main.js` using esbuild
+   - Copies `src/styles.css` → `styles.css` to root
    - Bundles all dependencies into single file
 
 5. **Build Validation**
