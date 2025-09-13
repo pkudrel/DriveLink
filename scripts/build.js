@@ -53,7 +53,7 @@ function exec(cmd, silent = false) {
     }
 }
 
-// Get version info using the semver action
+// Get version info using the semver action (always)
 function getVersionInfo() {
     logStep('1', 'Getting version information...');
 
@@ -64,51 +64,55 @@ function getVersionInfo() {
     }
 
     // Set environment variables for the semver action
-    const originalEnv = process.env;
+    const prevEnv = { ...process.env };
     process.env.INPUT_CONFIG_FILE = 'version.txt';
     process.env.INPUT_MODE = 'config-change';
     process.env.INPUT_TAG_PREFIX = 'v';
 
     try {
-        // Capture semver output
+        // Run the semver action script and parse key=value outputs
         const semverOutput = exec(`node "${semverScript}"`, true);
 
-        // The action sets outputs, but we need to extract them differently for local use
-        // Let's call it directly and parse the result
-        const versionFile = path.join(__dirname, '..', 'version.txt');
-        const versionContent = fs.readFileSync(versionFile, 'utf8').trim();
-        const [major, minor, patch = '0'] = versionContent.split('.');
+        if (!semverOutput) {
+            throw new Error('Semver action produced no output');
+        }
 
-        // Get git info
-        const sha = exec('git rev-parse HEAD', true) || 'unknown';
-        const shortSha = sha.substring(0, 7);
-        const branch = exec('git rev-parse --abbrev-ref HEAD', true) || 'unknown';
-        const buildDate = new Date().toISOString();
+        const map = {};
+        for (const line of semverOutput.split(/\r?\n/)) {
+            if (!line || !line.includes('=')) continue;
+            const idx = line.indexOf('=');
+            const key = line.slice(0, idx).trim();
+            const value = line.slice(idx + 1).trim();
+            if (key) map[key] = value;
+        }
 
-        const version = `${major}.${minor}.${patch}`;
-        const tag = `v${version}`;
+        const required = ['version', 'major', 'minor', 'patch', 'tag', 'sha', 'short_sha', 'branch', 'build_date_utc'];
+        const missing = required.filter(k => !(k in map));
+        if (missing.length) {
+            throw new Error(`Semver outputs missing keys: ${missing.join(', ')}`);
+        }
 
         const versionInfo = {
-            version,
-            major,
-            minor,
-            patch,
-            tag,
-            sha,
-            shortSha,
-            branch,
-            buildDate
+            version: map.version,
+            major: map.major,
+            minor: map.minor,
+            patch: map.patch,
+            tag: map.tag,
+            sha: map.sha,
+            shortSha: map.short_sha,
+            branch: map.branch,
+            buildDate: map.build_date_utc
         };
 
-        log(`📦 Version: ${colors.bright}${version}${colors.reset}`);
-        log(`🏷️  Tag: ${tag}`);
-        log(`🌿 Branch: ${branch}`);
-        log(`📝 Commit: ${shortSha}`);
-        log(`📅 Build Date: ${buildDate}`);
+        log(`📦 Version: ${colors.bright}${versionInfo.version}${colors.reset}`);
+        log(`🏷️  Tag: ${versionInfo.tag}`);
+        log(`🌿 Branch: ${versionInfo.branch}`);
+        log(`📝 Commit: ${versionInfo.shortSha}`);
+        log(`📅 Build Date: ${versionInfo.buildDate}`);
 
         return versionInfo;
     } finally {
-        process.env = originalEnv;
+        process.env = prevEnv;
     }
 }
 
@@ -267,3 +271,4 @@ if (require.main === module) {
 }
 
 module.exports = { main, getVersionInfo, updateManifest, buildPlugin };
+
