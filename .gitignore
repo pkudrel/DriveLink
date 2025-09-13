@@ -5,12 +5,12 @@ npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
 
-# Build outputs
-main.js
-styles.css
+# Build outputs (root directory only)
+/main.js
+/styles.css
 *.tgz
-build-info.json
-versions.json
+/build-info.json
+/versions.json
 
 # Development files
 .DS_Store
