@@ -1,0 +1,336 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>DriveLink OAuth Callback</title>
+    <style>
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            margin: 0;
+            padding: 0;
+            min-height: 100vh;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+
+        .container {
+            background: white;
+            padding: 2rem;
+            border-radius: 12px;
+            box-shadow: 0 8px 32px rgba(0, 0, 0, 0.1);
+            text-align: center;
+            max-width: 400px;
+            width: 90%;
+        }
+
+        .logo {
+            width: 64px;
+            height: 64px;
+            margin: 0 auto 1rem;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            color: white;
+            font-size: 24px;
+            font-weight: bold;
+        }
+
+        h1 {
+            margin: 0 0 0.5rem 0;
+            color: #333;
+            font-size: 1.5rem;
+        }
+
+        .subtitle {
+            color: #666;
+            margin-bottom: 1.5rem;
+            font-size: 0.9rem;
+        }
+
+        .status {
+            padding: 1rem;
+            border-radius: 8px;
+            margin-bottom: 1rem;
+            font-weight: 500;
+        }
+
+        .status.success {
+            background: #d4edda;
+            color: #155724;
+            border: 1px solid #c3e6cb;
+        }
+
+        .status.error {
+            background: #f8d7da;
+            color: #721c24;
+            border: 1px solid #f5c6cb;
+        }
+
+        .status.processing {
+            background: #fff3cd;
+            color: #856404;
+            border: 1px solid #ffeaa7;
+        }
+
+        .spinner {
+            display: inline-block;
+            width: 20px;
+            height: 20px;
+            border: 3px solid #f3f3f3;
+            border-top: 3px solid #3498db;
+            border-radius: 50%;
+            animation: spin 1s linear infinite;
+            margin-right: 8px;
+            vertical-align: middle;
+        }
+
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+
+        .footer {
+            margin-top: 1.5rem;
+            font-size: 0.8rem;
+            color: #999;
+        }
+
+        .close-button {
+            margin-top: 1rem;
+            padding: 0.5rem 1rem;
+            background: #667eea;
+            color: white;
+            border: none;
+            border-radius: 6px;
+            cursor: pointer;
+            font-size: 0.9rem;
+        }
+
+        .close-button:hover {
+            background: #5a6fd8;
+        }
+
+        .details {
+            margin-top: 1rem;
+            padding: 0.75rem;
+            background: #f8f9fa;
+            border-radius: 6px;
+            font-family: 'Monaco', 'Courier New', monospace;
+            font-size: 0.8rem;
+            text-align: left;
+            display: none;
+        }
+
+        .toggle-details {
+            color: #667eea;
+            cursor: pointer;
+            text-decoration: underline;
+            font-size: 0.8rem;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="logo">DL</div>
+        <h1>DriveLink OAuth</h1>
+        <p class="subtitle">Connecting your Obsidian vault to Google Drive</p>
+
+        <div id="status" class="status processing">
+            <span class="spinner"></span>
+            Processing authorization...
+        </div>
+
+        <div id="details" class="details"></div>
+        <span id="toggle-details" class="toggle-details" onclick="toggleDetails()" style="display: none;">Show details</span>
+
+        <button id="close-button" class="close-button" onclick="closeWindow()" style="display: none;">
+            Close Window
+        </button>
+
+        <div class="footer">
+            <p>You can safely close this window once the authorization is complete.</p>
+        </div>
+    </div>
+
+    <script>
+        // State management
+        let authData = null;
+        let hasTriedCallback = false;
+
+        // Initialize when page loads
+        document.addEventListener('DOMContentLoaded', function() {
+            processCallback();
+        });
+
+        function processCallback() {
+            try {
+                // Parse URL parameters
+                const urlParams = new URLSearchParams(window.location.search);
+                const code = urlParams.get('code');
+                const state = urlParams.get('state');
+                const error = urlParams.get('error');
+                const errorDescription = urlParams.get('error_description');
+
+                // Update details
+                updateDetails({
+                    url: window.location.href,
+                    code: code ? `${code.substring(0, 20)}...` : null,
+                    state: state ? `${state.substring(0, 20)}...` : null,
+                    error: error,
+                    errorDescription: errorDescription
+                });
+
+                if (error) {
+                    // OAuth error occurred
+                    showError(`Authorization failed: ${error}`, errorDescription);
+                    return;
+                }
+
+                if (!code || !state) {
+                    // Missing required parameters
+                    showError('Missing authorization parameters', 'The callback URL is missing required code or state parameters.');
+                    return;
+                }
+
+                // Store auth data for potential retry
+                authData = { code, state };
+
+                // Attempt to redirect to Obsidian
+                attemptObsidianCallback();
+
+            } catch (err) {
+                showError('Processing failed', err.message);
+            }
+        }
+
+        function attemptObsidianCallback() {
+            if (hasTriedCallback || !authData) {
+                return;
+            }
+
+            hasTriedCallback = true;
+
+            try {
+                // Construct Obsidian protocol URL
+                const obsidianUrl = `obsidian://plugin-drivelink/callback?action=callback&code=${encodeURIComponent(authData.code)}&state=${encodeURIComponent(authData.state)}`;
+
+                updateDetails({
+                    ...authData,
+                    obsidianUrl: obsidianUrl,
+                    status: 'Redirecting to Obsidian...'
+                });
+
+                // Attempt redirect
+                window.location.href = obsidianUrl;
+
+                // Show success after a short delay
+                setTimeout(() => {
+                    showSuccess('Authorization successful!', 'You should now be redirected to Obsidian. If not, please check that Obsidian is running and the DriveLink plugin is enabled.');
+                }, 1000);
+
+            } catch (err) {
+                showError('Redirect failed', err.message);
+            }
+        }
+
+        function showSuccess(title, message) {
+            const statusEl = document.getElementById('status');
+            statusEl.className = 'status success';
+            statusEl.innerHTML = `
+                <strong>✓ ${title}</strong><br>
+                <small>${message}</small>
+            `;
+            showCloseButton();
+            showDetailsToggle();
+        }
+
+        function showError(title, message) {
+            const statusEl = document.getElementById('status');
+            statusEl.className = 'status error';
+            statusEl.innerHTML = `
+                <strong>✗ ${title}</strong><br>
+                <small>${message || 'Please try again or check your configuration.'}</small>
+            `;
+            showCloseButton();
+            showDetailsToggle();
+        }
+
+        function showCloseButton() {
+            document.getElementById('close-button').style.display = 'inline-block';
+        }
+
+        function showDetailsToggle() {
+            document.getElementById('toggle-details').style.display = 'inline';
+        }
+
+        function updateDetails(data) {
+            const detailsEl = document.getElementById('details');
+            detailsEl.textContent = JSON.stringify(data, null, 2);
+        }
+
+        function toggleDetails() {
+            const detailsEl = document.getElementById('details');
+            const toggleEl = document.getElementById('toggle-details');
+
+            if (detailsEl.style.display === 'none' || !detailsEl.style.display) {
+                detailsEl.style.display = 'block';
+                toggleEl.textContent = 'Hide details';
+            } else {
+                detailsEl.style.display = 'none';
+                toggleEl.textContent = 'Show details';
+            }
+        }
+
+        function closeWindow() {
+            try {
+                window.close();
+            } catch (err) {
+                // If window.close() fails, show a message
+                const statusEl = document.getElementById('status');
+                statusEl.innerHTML = '<strong>Please close this window manually</strong>';
+            }
+        }
+
+        // Retry mechanism for failed redirects
+        function retryCallback() {
+            if (authData) {
+                hasTriedCallback = false;
+                const statusEl = document.getElementById('status');
+                statusEl.className = 'status processing';
+                statusEl.innerHTML = '<span class="spinner"></span>Retrying...';
+
+                setTimeout(attemptObsidianCallback, 500);
+            }
+        }
+
+        // Auto-retry after 3 seconds if still processing
+        setTimeout(() => {
+            const statusEl = document.getElementById('status');
+            if (statusEl.className.includes('processing')) {
+                // Add retry button if still processing
+                const retryButton = document.createElement('button');
+                retryButton.textContent = 'Retry';
+                retryButton.className = 'close-button';
+                retryButton.style.marginRight = '0.5rem';
+                retryButton.onclick = retryCallback;
+
+                statusEl.innerHTML += '<br><br>';
+                statusEl.appendChild(retryButton);
+                showCloseButton();
+            }
+        }, 3000);
+
+        // Handle page visibility change (when user returns to this tab)
+        document.addEventListener('visibilitychange', function() {
+            if (!document.hidden && authData && !hasTriedCallback) {
+                attemptObsidianCallback();
+            }
+        });
+    </script>
+</body>
+</html>
