@@ -163,7 +163,7 @@ export class SyncEngine {
             await this.uploadLocalChanges(comparison, options, stats);
 
             // Step 5: Download new and changed remote files
-            await this.downloadRemoteChanges(comparison, options, stats);
+            await this.downloadRemoteChanges(comparison, options, stats, remoteFiles);
 
             // Step 6: Handle deletions
             await this.handleDeletions(comparison, options, stats);
@@ -311,12 +311,29 @@ export class SyncEngine {
     private async downloadRemoteChanges(
         comparison: IndexComparison,
         options: SyncOptions,
-        stats: SyncStats
+        stats: SyncStats,
+        allRemoteFiles?: DriveFile[]
     ): Promise<void> {
-        const filesToDownload = [...comparison.newRemote, ...comparison.remoteChanges.map(path => {
+        const filesToDownload: DriveFile[] = [];
+
+        // Include new remote files
+        filesToDownload.push(...comparison.newRemote);
+
+        // Build a lookup for remote files
+        const remoteById = new Map<string, DriveFile>();
+        if (allRemoteFiles) {
+            for (const rf of allRemoteFiles) {
+                remoteById.set(rf.id, rf);
+            }
+        }
+
+        // Add changed remote files mapped by Drive ID
+        for (const path of comparison.remoteChanges) {
             const entry = this.indexManager.getFileEntry(path);
-            return comparison.newRemote.find(f => f.id === entry?.driveId);
-        }).filter(Boolean)];
+            if (!entry?.driveId) continue;
+            const rf = remoteById.get(entry.driveId);
+            if (rf) filesToDownload.push(rf);
+        }
 
         for (let i = 0; i < filesToDownload.length; i++) {
             const remoteFile = filesToDownload[i];
@@ -440,18 +457,20 @@ export class SyncEngine {
             localPath = remoteFile.name;
         }
 
-        // Write file to vault
+        // Create or update file in vault
         const arrayBuffer = new Uint8Array(content);
-        await this.app.vault.createBinary(localPath, arrayBuffer);
+        const existing = this.app.vault.getAbstractFileByPath(localPath);
+        if (existing instanceof TFile) {
+            await this.app.vault.modifyBinary(existing, arrayBuffer);
+            await this.indexManager.updateFileEntry(existing, remoteFile.id, remoteFile.etag);
+            return;
+        }
 
-        // Get the created file
-        const file = this.app.vault.getAbstractFileByPath(localPath);
-        if (file instanceof TFile) {
-            await this.indexManager.updateFileEntry(
-                file,
-                remoteFile.id,
-                remoteFile.etag
-            );
+        // Create new file if it doesn't exist
+        await this.app.vault.createBinary(localPath, arrayBuffer);
+        const created = this.app.vault.getAbstractFileByPath(localPath);
+        if (created instanceof TFile) {
+            await this.indexManager.updateFileEntry(created, remoteFile.id, remoteFile.etag);
         }
     }
 

@@ -1,4 +1,4 @@
-import { Plugin } from 'obsidian';
+import { Notice, Plugin } from 'obsidian';
 import { DriveLinkSettings, DEFAULT_SETTINGS, DriveLinkSettingTab } from './settings';
 import { TokenManager } from './auth/token-manager';
 import { DriveClient } from './drive/client';
@@ -17,6 +17,14 @@ export default class DriveLinkPlugin extends Plugin {
 		this.tokenManager = new TokenManager(this);
 		this.driveClient = new DriveClient(this.tokenManager);
 		this.syncEngine = new SyncEngine(this.app, this.driveClient, this.settings, this);
+
+		// Initialize OAuth manager if Client ID is already configured
+		if (this.settings.clientId) {
+			this.tokenManager.initializeOAuth(this.settings.clientId, this.settings.redirectUri);
+		}
+
+		// Initialize sync engine (index, change detection)
+		await this.syncEngine.initialize();
 
 		// Add settings tab
 		this.addSettingTab(new DriveLinkSettingTab(this.app, this));
@@ -39,6 +47,35 @@ export default class DriveLinkPlugin extends Plugin {
 			name: 'Sync now',
 			callback: () => this.syncNow()
 		});
+
+		// Register obsidian protocol handler for OAuth callback
+		this.registerObsidianProtocolHandler('plugin-drivelink', async (params) => {
+			try {
+				const { code, state, error, error_description } = params as Record<string, string>;
+				if (error) {
+					new Notice(`DriveLink auth error: ${error_description || error}`);
+					return;
+				}
+
+				if (!code || !state) {
+					new Notice('DriveLink: Missing code/state in callback');
+					return;
+				}
+
+				// Reconstruct the callback URL for parser
+				const callbackUrl = `obsidian://plugin-drivelink/callback?code=${encodeURIComponent(code)}&state=${encodeURIComponent(state)}`;
+				await this.tokenManager.handleCallback(callbackUrl);
+				new Notice('DriveLink: Connected to Google Drive');
+			} catch (e) {
+				console.error('DriveLink OAuth callback failed:', e);
+				new Notice('DriveLink: Authorization failed');
+			}
+		});
+
+		// Optional: sync on startup if enabled
+		if (this.settings.syncOnStartup) {
+			this.syncNow();
+		}
 
 		console.log('DriveLink plugin loaded');
 	}

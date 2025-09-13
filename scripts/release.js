@@ -8,7 +8,12 @@
 const fs = require('fs');
 const path = require('path');
 const { execSync } = require('child_process');
-const archiver = require('archiver');
+let archiver = null;
+try {
+    archiver = require('archiver');
+} catch (e) {
+    // Fallback will be used if archiver is not installed
+}
 
 // Color output utilities
 const colors = {
@@ -194,35 +199,63 @@ function createZipArchive(versionDir, version) {
         logStep('5', 'Creating ZIP archive...');
 
         const zipPath = path.join(path.dirname(versionDir), `drivelink-v${version}.zip`);
-        const output = fs.createWriteStream(zipPath);
-        const archive = archiver('zip', { zlib: { level: 9 } });
 
-        output.on('close', () => {
-            const sizeKB = Math.round(archive.pointer() / 1024);
-            logSuccess(`Created ZIP archive: drivelink-v${version}.zip (${sizeKB}KB)`);
-            resolve(zipPath);
-        });
+        if (archiver) {
+            // Preferred path: use archiver if available
+            const output = fs.createWriteStream(zipPath);
+            const archive = archiver('zip', { zlib: { level: 9 } });
 
-        output.on('error', reject);
-        archive.on('error', reject);
+            output.on('close', () => {
+                const sizeKB = Math.round(archive.pointer() / 1024);
+                logSuccess(`Created ZIP archive: drivelink-v${version}.zip (${sizeKB}KB)`);
+                resolve(zipPath);
+            });
 
-        archive.pipe(output);
+            output.on('error', reject);
+            archive.on('error', reject);
 
-        // Add files to archive
-        archive.file(path.join(versionDir, 'manifest.json'), { name: 'manifest.json' });
-        archive.file(path.join(versionDir, 'main.js'), { name: 'main.js' });
-        archive.file(path.join(versionDir, 'styles.css'), { name: 'styles.css' });
+            archive.pipe(output);
 
-        // Add optional files if they exist
-        const optionalFiles = ['README.md', 'LICENSE', 'versions.json'];
-        for (const file of optionalFiles) {
-            const filePath = path.join(versionDir, file);
-            if (fs.existsSync(filePath)) {
-                archive.file(filePath, { name: file });
+            // Add files to archive
+            archive.file(path.join(versionDir, 'manifest.json'), { name: 'manifest.json' });
+            archive.file(path.join(versionDir, 'main.js'), { name: 'main.js' });
+            archive.file(path.join(versionDir, 'styles.css'), { name: 'styles.css' });
+
+            // Add optional files if they exist
+            const optionalFiles = ['README.md', 'LICENSE', 'versions.json'];
+            for (const file of optionalFiles) {
+                const filePath = path.join(versionDir, file);
+                if (fs.existsSync(filePath)) {
+                    archive.file(filePath, { name: file });
+                }
+            }
+
+            archive.finalize();
+        } else {
+            // Fallback path: no archiver installed, use platform tools
+            try {
+                if (process.platform === 'win32') {
+                    // Use PowerShell Compress-Archive to zip the entire version directory contents
+                    const psVersionDir = versionDir.replace(/'/g, "''");
+                    const psZipPath = zipPath.replace(/'/g, "''");
+                    const cmd = `powershell -NoLogo -NoProfile -Command "Compress-Archive -Path '${psVersionDir}\\*' -DestinationPath '${psZipPath}' -Force"`;
+                    exec(cmd);
+                } else {
+                    // Try using system 'zip' if available
+                    const escapedVersionDir = versionDir.replace(/"/g, '\\"');
+                    const escapedZipPath = zipPath.replace(/"/g, '\\"');
+                    // Change directory to versionDir and zip its contents
+                    exec(`bash -lc "cd \"${escapedVersionDir}\" && zip -rq \"${escapedZipPath}\" ."`);
+                }
+
+                const sizeKB = Math.round(fs.statSync(zipPath).size / 1024);
+                logWarning('archiver not found; used system compressor fallback');
+                logSuccess(`Created ZIP archive: drivelink-v${version}.zip (${sizeKB}KB)`);
+                resolve(zipPath);
+            } catch (err) {
+                reject(err);
             }
         }
-
-        archive.finalize();
     });
 }
 
