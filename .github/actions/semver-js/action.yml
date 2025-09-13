@@ -1,0 +1,32 @@
+name: "SemVer (JS)"
+description: "Generates major.minor.patch from repo state"
+inputs:
+  major_minor:
+    description: "Override MAJOR.MINOR[.PATCH]. If empty, read from config_file."
+    required: false
+    default: ""
+  mode:
+    description: "patch mode: branch | config-change | tag"
+    required: false
+    default: "config-change"
+  config_file:
+    description: "Path to file containing MAJOR.MINOR.PATCH (e.g. version.txt)"
+    required: false
+    default: "version.txt"
+  tag_prefix:
+    description: "Prefix for tags, e.g. v"
+    required: false
+    default: "v"
+outputs:
+  version:     { description: "MAJOR.MINOR.PATCH" }
+  major:       { description: "MAJOR" }
+  minor:       { description: "MINOR" }
+  patch:       { description: "PATCH" }
+  tag:         { description: "tag_prefix + version (e.g., v1.4.23)" }
+  sha:         { description: "Full commit SHA at HEAD" }
+  short_sha:   { description: "Short commit SHA (7 chars)" }
+  branch:      { description: "Current branch name" }
+  build_date_utc: { description: "Build date/time in UTC (ISO 8601)" }
+runs:
+  using: node20
+  main: index.js
