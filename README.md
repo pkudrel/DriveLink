@@ -151,14 +151,29 @@ Enable debug logging:
 npm install
 
 # Development build (with file watching)
-npm run dev
+npm run build:dev
 
-# Production build
-npm run build
+# Production build with version management
+npm run build:local
 
-# TypeScript check
-npm run build
+# Create release package
+npm run release
+
+# Original esbuild commands
+npm run dev          # Development with watching
+npm run build        # Production esbuild only
 ```
+
+### Build System
+
+The plugin includes a comprehensive build system:
+
+- **Version Management**: Reads from `version.txt` for consistent versioning
+- **Automated Builds**: Handles TypeScript compilation and asset copying
+- **Release Packaging**: Creates distributable ZIP files with checksums
+- **CI/CD Integration**: GitHub Actions for automated releases
+
+See [BUILD.md](BUILD.md) for detailed build documentation.
 
 ### Project Structure
 
@@ -179,7 +194,17 @@ src/
 │   ├── crypto.ts      # PKCE crypto helpers
 │   └── file-utils.ts  # File pattern matching
 ├── settings.ts        # Plugin settings UI
+├── styles.css         # Plugin UI styles
 └── main.ts           # Plugin entry point
+
+scripts/
+├── build.js          # Build orchestrator with version management
+└── release.js        # Release packaging system
+
+.github/
+├── workflows/
+│   └── release.yml   # Automated release workflow
+└── actions/semver-js/ # Custom semver action
 ```
 
 ## Contributing
