@@ -232,7 +232,6 @@ For issues and questions:
 - Search existing GitHub issues
 - Create a new issue with detailed information
 
-
 ---
 
 **Made with ❤️ for the Obsidian community**
