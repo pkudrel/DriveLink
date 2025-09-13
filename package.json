@@ -9,6 +9,9 @@
     "build:local": "node scripts/build.js --prod",
     "build:dev": "node scripts/build.js",
     "version": "node scripts/build.js --skip-build",
+    "release": "node scripts/release.js",
+    "release:skip-build": "node scripts/release.js --skip-build",
+    "release:clean": "node scripts/release.js --clean",
     "prebuild": "npm run version",
     "prepack": "npm run build:local"
   },
@@ -23,6 +26,7 @@
   "license": "MIT",
   "devDependencies": {
     "@types/node": "^16.11.6",
+    "archiver": "^5.3.1",
     "builtin-modules": "3.3.0",
     "esbuild": "0.17.3",
     "obsidian": "latest",

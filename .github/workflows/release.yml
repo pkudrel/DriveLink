@@ -1,0 +1,235 @@
+name: Release
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'version.txt'
+      - 'manifest.json'
+      - 'src/**'
+      - 'scripts/**'
+      - 'package.json'
+
+jobs:
+  check-version:
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.semver.outputs.version }}
+      tag: ${{ steps.semver.outputs.tag }}
+      should_release: ${{ steps.check.outputs.should_release }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Get version info
+        id: semver
+        uses: ./.github/actions/semver-js
+        with:
+          config_file: 'version.txt'
+          mode: 'config-change'
+          tag_prefix: 'v'
+
+      - name: Check if release needed
+        id: check
+        run: |
+          # Check if tag already exists
+          if git tag -l "${{ steps.semver.outputs.tag }}" | grep -q "${{ steps.semver.outputs.tag }}"; then
+            echo "Tag ${{ steps.semver.outputs.tag }} already exists, skipping release"
+            echo "should_release=false" >> $GITHUB_OUTPUT
+          else
+            echo "New version ${{ steps.semver.outputs.version }}, creating release"
+            echo "should_release=true" >> $GITHUB_OUTPUT
+          fi
+
+  release:
+    needs: check-version
+    if: needs.check-version.outputs.should_release == 'true'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '18'
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build plugin
+        run: npm run build:local
+
+      - name: Create release package
+        run: npm run release:skip-build
+
+      - name: Prepare release files
+        run: |
+          VERSION="${{ needs.check-version.outputs.version }}"
+
+          # Create release directory
+          mkdir -p release-artifacts
+
+          # Copy release files
+          cp releases/drivelink-v${VERSION}.zip release-artifacts/
+          cp releases/drivelink-v${VERSION}.checksums.txt release-artifacts/
+
+          # Copy individual plugin files for direct download
+          cp manifest.json release-artifacts/
+          cp main.js release-artifacts/
+          cp styles.css release-artifacts/
+
+          # Create installation instructions
+          cat > release-artifacts/INSTALL.md << EOF
+          # DriveLink Plugin v${VERSION} - Installation
+
+          ## Method 1: ZIP Installation
+          1. Download \`drivelink-v${VERSION}.zip\`
+          2. Extract to \`YourVault/.obsidian/plugins/drivelink/\`
+          3. Enable the plugin in Obsidian settings
+
+          ## Method 2: Manual Files
+          1. Download individual files: \`manifest.json\`, \`main.js\`, \`styles.css\`
+          2. Copy to \`YourVault/.obsidian/plugins/drivelink/\`
+          3. Enable the plugin in Obsidian settings
+
+          ## Requirements
+          - Obsidian v0.15.0 or later
+          - Google Drive account
+
+          ## Checksums
+          See \`drivelink-v${VERSION}.checksums.txt\` for file verification.
+          EOF
+
+      - name: Create Git tag
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git tag -a "${{ needs.check-version.outputs.tag }}" -m "Release ${{ needs.check-version.outputs.tag }}"
+          git push origin "${{ needs.check-version.outputs.tag }}"
+
+      - name: Generate release notes
+        id: release_notes
+        run: |
+          VERSION="${{ needs.check-version.outputs.version }}"
+
+          # Read existing release notes if available
+          if [ -f "releases/v${VERSION}/RELEASE_NOTES.md" ]; then
+            RELEASE_NOTES=$(cat "releases/v${VERSION}/RELEASE_NOTES.md")
+          else
+            RELEASE_NOTES="# DriveLink Plugin v${VERSION}
+
+          ## What's New
+          - Automated release from version ${VERSION}
+          - Built from commit ${{ github.sha }}
+
+          ## Installation
+          Download the ZIP file and extract to your Obsidian vault's plugins directory.
+
+          ## Requirements
+          - Obsidian v0.15.0 or later
+          - Google Drive account with API access"
+          fi
+
+          # Save to output (escape newlines for GitHub Actions)
+          {
+            echo 'RELEASE_NOTES<<EOF'
+            echo "$RELEASE_NOTES"
+            echo 'EOF'
+          } >> $GITHUB_OUTPUT
+
+      - name: Create GitHub Release
+        uses: actions/create-release@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          tag_name: ${{ needs.check-version.outputs.tag }}
+          release_name: DriveLink Plugin ${{ needs.check-version.outputs.tag }}
+          body: ${{ steps.release_notes.outputs.RELEASE_NOTES }}
+          draft: false
+          prerelease: false
+
+      - name: Upload Release Assets
+        uses: actions/upload-release-asset@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          upload_url: ${{ steps.create_release.outputs.upload_url }}
+          asset_path: release-artifacts/drivelink-v${{ needs.check-version.outputs.version }}.zip
+          asset_name: drivelink-v${{ needs.check-version.outputs.version }}.zip
+          asset_content_type: application/zip
+
+      - name: Upload Checksums
+        uses: actions/upload-release-asset@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          upload_url: ${{ steps.create_release.outputs.upload_url }}
+          asset_path: release-artifacts/drivelink-v${{ needs.check-version.outputs.version }}.checksums.txt
+          asset_name: drivelink-v${{ needs.check-version.outputs.version }}.checksums.txt
+          asset_content_type: text/plain
+
+      - name: Upload Plugin Files
+        uses: actions/upload-release-asset@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          upload_url: ${{ steps.create_release.outputs.upload_url }}
+          asset_path: release-artifacts/manifest.json
+          asset_name: manifest.json
+          asset_content_type: application/json
+
+      - name: Upload Main JS
+        uses: actions/upload-release-asset@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          upload_url: ${{ steps.create_release.outputs.upload_url }}
+          asset_path: release-artifacts/main.js
+          asset_name: main.js
+          asset_content_type: application/javascript
+
+      - name: Upload Styles
+        uses: actions/upload-release-asset@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          upload_url: ${{ steps.create_release.outputs.upload_url }}
+          asset_path: release-artifacts/styles.css
+          asset_name: styles.css
+          asset_content_type: text/css
+
+      - name: Upload Install Instructions
+        uses: actions/upload-release-asset@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          upload_url: ${{ steps.create_release.outputs.upload_url }}
+          asset_path: release-artifacts/INSTALL.md
+          asset_name: INSTALL.md
+          asset_content_type: text/markdown
+
+  notify:
+    needs: [check-version, release]
+    if: always()
+    runs-on: ubuntu-latest
+    steps:
+      - name: Notification
+        run: |
+          if [ "${{ needs.check-version.outputs.should_release }}" = "true" ]; then
+            if [ "${{ needs.release.result }}" = "success" ]; then
+              echo "✅ Successfully released DriveLink Plugin ${{ needs.check-version.outputs.tag }}"
+            else
+              echo "❌ Release failed for version ${{ needs.check-version.outputs.version }}"
+              exit 1
+            fi
+          else
+            echo "ℹ️  No release needed - version unchanged or tag already exists"
+          fi
