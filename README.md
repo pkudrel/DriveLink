@@ -230,10 +230,7 @@ This plugin is not affiliated with Google or Obsidian. Use at your own risk. Alw
 For issues and questions:
 - Check the troubleshooting section above
 - Search existing GitHub issues
-- Create a new issue with detailed information
-
-
-
+- Create a new issue with detailed information   
 ---
 
 **Made with ❤️ for the Obsidian community**
