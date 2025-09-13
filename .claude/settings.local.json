@@ -13,7 +13,8 @@
       "Bash(npm run build:*)",
       "Bash(git push:*)",
       "Bash(git fetch:*)",
-      "Bash(git ls-tree:*)"
+      "Bash(git ls-tree:*)",
+      "Bash(git check-ignore:*)"
     ],
     "deny": [],
     "ask": []
