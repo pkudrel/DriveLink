@@ -7,6 +7,8 @@ yarn-error.log*
 # Build outputs
 main.js
 *.tgz
+build-info.json
+versions.json
 
 # Development files
 .DS_Store

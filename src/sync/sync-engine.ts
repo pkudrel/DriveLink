@@ -1,4 +1,4 @@
-import { App, TFile, Notice } from 'obsidian';
+import { App, TFile, Notice, Plugin } from 'obsidian';
 import { DriveClient, DriveFile } from '../drive/client';
 import { DriveFileOperations, UploadOptions } from '../drive/file-operations';
 import { DriveChangeDetection } from '../drive/change-detection';
@@ -65,7 +65,8 @@ export class SyncEngine {
     constructor(
         app: App,
         driveClient: DriveClient,
-        settings: DriveLinkSettings
+        settings: DriveLinkSettings,
+        plugin: Plugin
     ) {
         this.app = app;
         this.driveClient = driveClient;
@@ -74,7 +75,7 @@ export class SyncEngine {
         // Initialize components
         this.fileOperations = new DriveFileOperations(driveClient['tokenManager']);
         this.changeDetection = new DriveChangeDetection(driveClient['tokenManager']);
-        this.indexManager = new IndexManager(app.plugins.plugins['drivelink'] || app.plugins.enabledPlugins['drivelink']);
+        this.indexManager = new IndexManager(plugin);
         this.conflictResolver = new ConflictResolver(app, this.indexManager);
     }
 

@@ -1,5 +1,5 @@
 import { App, PluginSettingTab, Setting } from 'obsidian';
-import DriveLinkPlugin from '../main';
+import DriveLinkPlugin from './main';
 
 /**
  * Plugin settings interface

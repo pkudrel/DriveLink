@@ -16,7 +16,7 @@ export default class DriveLinkPlugin extends Plugin {
 		// Initialize core components
 		this.tokenManager = new TokenManager(this);
 		this.driveClient = new DriveClient(this.tokenManager);
-		this.syncEngine = new SyncEngine(this.app, this.driveClient, this.settings);
+		this.syncEngine = new SyncEngine(this.app, this.driveClient, this.settings, this);
 
 		// Add settings tab
 		this.addSettingTab(new DriveLinkSettingTab(this.app, this));

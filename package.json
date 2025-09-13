@@ -6,7 +6,11 @@
   "scripts": {
     "dev": "node esbuild.config.mjs",
     "build": "tsc -noEmit -skipLibCheck && node esbuild.config.mjs production",
-    "version": "node version-bump.mjs && git add manifest.json versions.json"
+    "build:local": "node scripts/build.js --prod",
+    "build:dev": "node scripts/build.js",
+    "version": "node scripts/build.js --skip-build",
+    "prebuild": "npm run version",
+    "prepack": "npm run build:local"
   },
   "keywords": [
     "obsidian",
