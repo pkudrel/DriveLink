@@ -53,6 +53,44 @@ function exec(cmd, silent = false) {
     }
 }
 
+// Parse semver output into version info object
+function parseSemverOutput(semverOutput) {
+    const map = {};
+    for (const line of semverOutput.split(/\r?\n/)) {
+        if (!line || !line.includes('=')) continue;
+        const idx = line.indexOf('=');
+        const key = line.slice(0, idx).trim();
+        const value = line.slice(idx + 1).trim();
+        if (key) map[key] = value;
+    }
+
+    const required = ['version', 'major', 'minor', 'patch', 'tag', 'sha', 'short_sha', 'branch', 'build_date_utc'];
+    const missing = required.filter(k => !(k in map));
+    if (missing.length) {
+        throw new Error(`Semver outputs missing keys: ${missing.join(', ')}`);
+    }
+
+    const versionInfo = {
+        version: map.version,
+        major: map.major,
+        minor: map.minor,
+        patch: map.patch,
+        tag: map.tag,
+        sha: map.sha,
+        shortSha: map.short_sha,
+        branch: map.branch,
+        buildDate: map.build_date_utc
+    };
+
+    log(`📦 Version: ${colors.bright}${versionInfo.version}${colors.reset}`);
+    log(`🏷️  Tag: ${versionInfo.tag}`);
+    log(`🌿 Branch: ${versionInfo.branch}`);
+    log(`📝 Commit: ${versionInfo.shortSha}`);
+    log(`📅 Build Date: ${versionInfo.buildDate}`);
+
+    return versionInfo;
+}
+
 // Get version info using the semver action (always)
 function getVersionInfo() {
     logStep('1', 'Getting version information...');
@@ -79,52 +117,53 @@ function getVersionInfo() {
         console.log('Debug: Semver output:', semverOutput);
 
         if (!semverOutput) {
-            // Try running with stderr to see what's wrong
-            console.log('Debug: Attempting to run semver with stderr...');
-            try {
-                const semverResult = execSync(`node "${semverScript}"`, { encoding: 'utf8', stdio: 'pipe' });
-                console.log('Debug: Semver stderr result:', semverResult);
-            } catch (error) {
-                console.log('Debug: Semver stderr error:', error.stderr);
-                console.log('Debug: Semver stdout error:', error.stdout);
+            // Fallback: use version from file + timestamp for CI environments
+            console.log('Debug: Semver produced no output, using fallback versioning');
+
+            const versionFile = process.env.INPUT_CONFIG_FILE;
+            if (!fs.existsSync(versionFile)) {
+                throw new Error(`Config file not found: ${versionFile}`);
             }
-            throw new Error('Semver action produced no output');
+
+            const fileContent = fs.readFileSync(versionFile, 'utf8').trim();
+            const versionMatch = fileContent.match(/^(\d+)\.(\d+)(?:\.(\d+))?/);
+
+            if (!versionMatch) {
+                throw new Error(`Cannot parse version from ${versionFile}: ${fileContent}`);
+            }
+
+            const major = versionMatch[1];
+            const minor = versionMatch[2];
+            const basePatch = parseInt(versionMatch[3] || '0', 10);
+
+            // For CI, use timestamp-based patch increment
+            const now = new Date();
+            const timestampPatch = Math.floor(now.getTime() / 1000) % 1000; // Use last 3 digits of timestamp
+            const patch = basePatch + timestampPatch;
+
+            const version = `${major}.${minor}.${patch}`;
+            const sha = exec('git rev-parse HEAD', true) || 'unknown';
+            const shortSha = exec('git rev-parse --short=7 HEAD', true) || 'unknown';
+            const branch = exec('git branch --show-current', true) || 'unknown';
+            const buildDateUtc = now.toISOString().replace(/\.\d{3}Z$/, 'Z');
+
+            const fallbackOutput = [
+                `version=${version}`,
+                `major=${major}`,
+                `minor=${minor}`,
+                `patch=${patch}`,
+                `tag=v${version}`,
+                `sha=${sha}`,
+                `short_sha=${shortSha}`,
+                `branch=${branch}`,
+                `build_date_utc=${buildDateUtc}`
+            ].join('\n');
+
+            console.log('Debug: Using fallback version:', version);
+            return parseSemverOutput(fallbackOutput);
         }
 
-        const map = {};
-        for (const line of semverOutput.split(/\r?\n/)) {
-            if (!line || !line.includes('=')) continue;
-            const idx = line.indexOf('=');
-            const key = line.slice(0, idx).trim();
-            const value = line.slice(idx + 1).trim();
-            if (key) map[key] = value;
-        }
-
-        const required = ['version', 'major', 'minor', 'patch', 'tag', 'sha', 'short_sha', 'branch', 'build_date_utc'];
-        const missing = required.filter(k => !(k in map));
-        if (missing.length) {
-            throw new Error(`Semver outputs missing keys: ${missing.join(', ')}`);
-        }
-
-        const versionInfo = {
-            version: map.version,
-            major: map.major,
-            minor: map.minor,
-            patch: map.patch,
-            tag: map.tag,
-            sha: map.sha,
-            shortSha: map.short_sha,
-            branch: map.branch,
-            buildDate: map.build_date_utc
-        };
-
-        log(`📦 Version: ${colors.bright}${versionInfo.version}${colors.reset}`);
-        log(`🏷️  Tag: ${versionInfo.tag}`);
-        log(`🌿 Branch: ${versionInfo.branch}`);
-        log(`📝 Commit: ${versionInfo.shortSha}`);
-        log(`📅 Build Date: ${versionInfo.buildDate}`);
-
-        return versionInfo;
+        return parseSemverOutput(semverOutput);
     } finally {
         process.env = prevEnv;
     }
