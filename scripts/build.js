@@ -103,74 +103,17 @@ function getVersionInfo() {
 
     // Set environment variables for the semver action
     const prevEnv = { ...process.env };
-    process.env.INPUT_CONFIG_FILE = path.join(__dirname, '..', 'version.txt');
+    process.env.INPUT_CONFIG_FILE = 'version.txt'; // Must be relative to repo root for git commands
     process.env.INPUT_MODE = 'config-change';
     process.env.INPUT_TAG_PREFIX = 'v';
 
     
     try {
         // Run the semver action script and parse key=value outputs
-        console.log('Debug: About to run semver script with config file:', process.env.INPUT_CONFIG_FILE);
-        console.log('Debug: Semver script path:', semverScript);
-        console.log('Debug: Config file exists:', fs.existsSync(process.env.INPUT_CONFIG_FILE));
-
-        // Run semver script and capture both stdout and stderr
-        let semverOutput;
-        try {
-            const result = execSync(`node "${semverScript}"`, { encoding: 'utf8', stdio: 'pipe' });
-            semverOutput = result;
-        } catch (error) {
-            console.log('Debug: Semver stderr:', error.stderr);
-            console.log('Debug: Semver stdout:', error.stdout);
-            semverOutput = error.stdout; // Try to use stdout even if there was an error
-        }
-        console.log('Debug: Semver output:', semverOutput);
+        const semverOutput = exec(`node "${semverScript}"`, true);
 
         if (!semverOutput) {
-            // Fallback: use version from file + timestamp for CI environments
-            console.log('Debug: Semver produced no output, using fallback versioning');
-
-            const versionFile = process.env.INPUT_CONFIG_FILE;
-            if (!fs.existsSync(versionFile)) {
-                throw new Error(`Config file not found: ${versionFile}`);
-            }
-
-            const fileContent = fs.readFileSync(versionFile, 'utf8').trim();
-            const versionMatch = fileContent.match(/^(\d+)\.(\d+)(?:\.(\d+))?/);
-
-            if (!versionMatch) {
-                throw new Error(`Cannot parse version from ${versionFile}: ${fileContent}`);
-            }
-
-            const major = versionMatch[1];
-            const minor = versionMatch[2];
-            const basePatch = parseInt(versionMatch[3] || '0', 10);
-
-            // For CI, use timestamp-based patch increment
-            const now = new Date();
-            const timestampPatch = Math.floor(now.getTime() / 1000) % 1000; // Use last 3 digits of timestamp
-            const patch = basePatch + timestampPatch;
-
-            const version = `${major}.${minor}.${patch}`;
-            const sha = exec('git rev-parse HEAD', true) || 'unknown';
-            const shortSha = exec('git rev-parse --short=7 HEAD', true) || 'unknown';
-            const branch = exec('git branch --show-current', true) || 'unknown';
-            const buildDateUtc = now.toISOString().replace(/\.\d{3}Z$/, 'Z');
-
-            const fallbackOutput = [
-                `version=${version}`,
-                `major=${major}`,
-                `minor=${minor}`,
-                `patch=${patch}`,
-                `tag=v${version}`,
-                `sha=${sha}`,
-                `short_sha=${shortSha}`,
-                `branch=${branch}`,
-                `build_date_utc=${buildDateUtc}`
-            ].join('\n');
-
-            console.log('Debug: Using fallback version:', version);
-            return parseSemverOutput(fallbackOutput);
+            throw new Error('Semver action produced no output');
         }
 
         return parseSemverOutput(semverOutput);
