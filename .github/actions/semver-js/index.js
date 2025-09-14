@@ -2,6 +2,21 @@
 const fs = require("fs");
 const cp = require("child_process");
 
+// Catch all uncaught errors
+process.on('uncaughtException', (error) => {
+  console.error('[DEBUG] Uncaught exception:', error.message);
+  console.error('[DEBUG] Stack:', error.stack);
+  process.exit(1);
+});
+
+process.on('unhandledRejection', (reason, promise) => {
+  console.error('[DEBUG] Unhandled rejection at:', promise);
+  console.error('[DEBUG] Reason:', reason);
+  process.exit(1);
+});
+
+console.error('[DEBUG] Script loaded, setting up environment');
+
 const env = (k, d = "") => (process.env[k] ?? d);
 const MODE = env("INPUT_MODE", "config-change").toLowerCase();
 const CONFIG_FILE = env("INPUT_CONFIG_FILE", "version.txt");
@@ -82,6 +97,9 @@ function setOutputs(map) {
 (async function main() {
   try {
     console.error('[DEBUG] Starting semver script');
+    console.error('[DEBUG] Process.cwd:', process.cwd());
+    console.error('[DEBUG] __filename:', __filename);
+    console.error('[DEBUG] __dirname:', __dirname);
     console.error('[DEBUG] MODE:', MODE);
     console.error('[DEBUG] CONFIG_FILE:', CONFIG_FILE);
     console.error('[DEBUG] TAG_PREFIX:', TAG_PREFIX);
