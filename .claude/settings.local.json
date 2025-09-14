@@ -14,7 +14,10 @@
       "Bash(git push:*)",
       "Bash(git fetch:*)",
       "Bash(git ls-tree:*)",
-      "Bash(git check-ignore:*)"
+      "Bash(git check-ignore:*)",
+      "Bash(set INPUT_CONFIG_FILE=version.txt)",
+      "Bash(set INPUT_MODE=config-change)",
+      "Bash(set INPUT_TAG_PREFIX=v)"
     ],
     "deny": [],
     "ask": []

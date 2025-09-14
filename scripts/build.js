@@ -65,7 +65,7 @@ function getVersionInfo() {
 
     // Set environment variables for the semver action
     const prevEnv = { ...process.env };
-    process.env.INPUT_CONFIG_FILE = 'version.txt';
+    process.env.INPUT_CONFIG_FILE = path.join(__dirname, '..', 'version.txt');
     process.env.INPUT_MODE = 'config-change';
     process.env.INPUT_TAG_PREFIX = 'v';
 
