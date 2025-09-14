@@ -91,6 +91,77 @@ function parseSemverOutput(semverOutput) {
     return versionInfo;
 }
 
+// Fallback version calculation when semver script fails
+function getFallbackVersionInfo() {
+    console.log('Debug: Using fallback version calculation');
+
+    // Read base version from version.txt
+    const versionFile = path.join(__dirname, '..', 'version.txt');
+    const baseVersion = fs.existsSync(versionFile)
+        ? fs.readFileSync(versionFile, 'utf8').trim()
+        : '0.1.0';
+
+    // Parse base version
+    const parts = baseVersion.match(/^(\d+)\.(\d+)(?:\.(\d+))?$/);
+    if (!parts) {
+        throw new Error(`Invalid version format in version.txt: ${baseVersion}`);
+    }
+
+    const major = parts[1];
+    const minor = parts[2];
+    const basePatch = parseInt(parts[3] || '0', 10);
+
+    // Get commit count for increment (simple fallback)
+    let increment = 0;
+    try {
+        const commitCount = exec('git rev-list --count HEAD', true);
+        increment = parseInt(commitCount || '0', 10);
+    } catch (error) {
+        console.log('Debug: Could not get commit count, using 0');
+    }
+
+    const finalPatch = basePatch + increment;
+    const version = `${major}.${minor}.${finalPatch}`;
+    const tag = `v${version}`;
+
+    // Get other git info
+    let sha = '';
+    let shortSha = '';
+    let branch = 'unknown';
+
+    try {
+        sha = exec('git rev-parse HEAD', true) || '';
+        shortSha = exec('git rev-parse --short=7 HEAD', true) || sha.substring(0, 7);
+        branch = exec('git branch --show-current', true) || 'production';
+    } catch (error) {
+        console.log('Debug: Could not get git info');
+    }
+
+    const buildDate = new Date().toISOString().replace(/\.\d{3}Z$/, 'Z');
+
+    const versionInfo = {
+        version,
+        major,
+        minor,
+        patch: String(finalPatch),
+        tag,
+        sha,
+        shortSha,
+        branch,
+        buildDate
+    };
+
+    console.log(`Debug: Using fallback version: ${version}`);
+
+    log(`📦 Version: ${colors.bright}${versionInfo.version}${colors.reset}`);
+    log(`🏷️  Tag: ${versionInfo.tag}`);
+    log(`🌿 Branch: ${versionInfo.branch}`);
+    log(`📝 Commit: ${versionInfo.shortSha}`);
+    log(`📅 Build Date: ${versionInfo.buildDate}`);
+
+    return versionInfo;
+}
+
 // Get version info using the semver action (always)
 function getVersionInfo() {
     logStep('1', 'Getting version information...');
@@ -101,24 +172,54 @@ function getVersionInfo() {
         throw new Error('Semver action not found. Ensure .github/actions/semver-js/index.js exists.');
     }
 
-    // Set environment variables for the semver action
-    const prevEnv = { ...process.env };
-    process.env.INPUT_CONFIG_FILE = 'version.txt'; // Must be relative to repo root for git commands
-    process.env.INPUT_MODE = 'config-change';
-    process.env.INPUT_TAG_PREFIX = 'v';
-
-    
     try {
-        // Run the semver action script and parse key=value outputs
-        const semverOutput = exec(`node "${semverScript}"`, true);
+        // Create a temporary file to capture output since semver script uses GITHUB_OUTPUT
+        const os = require('os');
+        const tempOutputFile = path.join(os.tmpdir(), `semver-build-output-${Date.now()}.txt`);
+
+        console.log(`Debug: About to run semver script with config file: ${path.join(__dirname, '..', 'version.txt')}`);
+        console.log(`Debug: Semver script path: ${semverScript}`);
+        console.log(`Debug: Config file exists: ${fs.existsSync(path.join(__dirname, '..', 'version.txt'))}`);
+
+        // Set environment variables for the semver action
+        const env = {
+            ...process.env,
+            INPUT_CONFIG_FILE: 'version.txt',
+            INPUT_MODE: 'config-change',
+            INPUT_TAG_PREFIX: 'v',
+            GITHUB_OUTPUT: tempOutputFile
+        };
+
+        // Run the semver action script
+        const result = execSync(`node "${semverScript}"`, {
+            encoding: 'utf8',
+            env,
+            stdio: 'pipe'
+        });
+
+        console.log(`Debug: Semver output: ${result || '(empty)'}`);
+
+        let semverOutput = '';
+
+        // Try to read from GITHUB_OUTPUT file first
+        if (fs.existsSync(tempOutputFile)) {
+            semverOutput = fs.readFileSync(tempOutputFile, 'utf8');
+            fs.unlinkSync(tempOutputFile); // cleanup
+        } else if (result) {
+            // Fallback to stdout
+            semverOutput = result;
+        }
 
         if (!semverOutput) {
-            throw new Error('Semver action produced no output');
+            console.log('Debug: Semver produced no output, using fallback versioning');
+            return getFallbackVersionInfo();
         }
 
         return parseSemverOutput(semverOutput);
-    } finally {
-        process.env = prevEnv;
+    } catch (error) {
+        console.log(`Debug: Semver script failed: ${error.message}`);
+        console.log('Debug: Using fallback version calculation');
+        return getFallbackVersionInfo();
     }
 }
 
