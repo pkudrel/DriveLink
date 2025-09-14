@@ -60,13 +60,44 @@ function exec(cmd, silent = false) {
     }
 }
 
-// Get current version from version.txt
+// Get current version using semver script (same as CI)
 function getCurrentVersion() {
-    const versionFile = path.join(__dirname, '..', 'version.txt');
-    if (!fs.existsSync(versionFile)) {
-        throw new Error('version.txt not found. Run build first.');
+    const semverScript = path.join(__dirname, '..', '.github', 'actions', 'semver-js', 'index.js');
+    if (!fs.existsSync(semverScript)) {
+        throw new Error('semver script not found');
     }
-    return fs.readFileSync(versionFile, 'utf8').trim();
+
+    try {
+        // Set environment variables to match CI
+        const env = {
+            ...process.env,
+            INPUT_CONFIG_FILE: 'version.txt',
+            INPUT_MODE: 'config-change',
+            INPUT_TAG_PREFIX: 'v'
+        };
+
+        // Run semver script and capture stdout
+        const result = execSync(`node "${semverScript}"`, {
+            encoding: 'utf8',
+            env,
+            stdio: ['ignore', 'pipe', 'ignore']
+        });
+
+        // Parse version from output (format: version=X.Y.Z)
+        const versionMatch = result.match(/^version=(.+)$/m);
+        if (versionMatch) {
+            return versionMatch[1];
+        }
+
+        throw new Error('Could not parse version from semver script output');
+    } catch (error) {
+        logWarning('Failed to get version from semver script, falling back to version.txt');
+        const versionFile = path.join(__dirname, '..', 'version.txt');
+        if (!fs.existsSync(versionFile)) {
+            throw new Error('version.txt not found and semver script failed');
+        }
+        return fs.readFileSync(versionFile, 'utf8').trim();
+    }
 }
 
 // Validate required files exist
