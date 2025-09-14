@@ -107,6 +107,7 @@ function getVersionInfo() {
     process.env.INPUT_MODE = 'config-change';
     process.env.INPUT_TAG_PREFIX = 'v';
 
+    
     try {
         // Run the semver action script and parse key=value outputs
         console.log('Debug: About to run semver script with config file:', process.env.INPUT_CONFIG_FILE);
