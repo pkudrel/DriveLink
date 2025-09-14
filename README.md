@@ -233,4 +233,5 @@ For issues and questions:
 - Create a new issue with detailed information   
 ---
 
+
 **Made with ❤️ for the Obsidian community**
