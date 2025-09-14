@@ -17,7 +17,8 @@
       "Bash(git check-ignore:*)",
       "Bash(set INPUT_CONFIG_FILE=version.txt)",
       "Bash(set INPUT_MODE=config-change)",
-      "Bash(set INPUT_TAG_PREFIX=v)"
+      "Bash(set INPUT_TAG_PREFIX=v)",
+      "Read(//w/tmp/**)"
     ],
     "deny": [],
     "ask": []
