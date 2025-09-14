@@ -52,9 +52,15 @@ function findBaseCommitForCurrentMM(file, currentMM) {
   return lastShaWithCurrent;
 }
 function getIncrementSinceMMChange(file, currentMM) {
+  console.error('[DEBUG] getIncrementSinceMMChange called with file:', file, 'currentMM:', currentMM);
   const base = findBaseCommitForCurrentMM(file, currentMM);
-  if (!base) return getIncrementBranch();
+  console.error('[DEBUG] Base commit for current MM:', base);
+  if (!base) {
+    console.error('[DEBUG] No base commit found, using branch increment');
+    return getIncrementBranch();
+  }
   const n = sh(`git rev-list --count ${base}..HEAD`);
+  console.error('[DEBUG] Commits since base:', n);
   return Number.parseInt(n || "0", 10) || 0;
 }
 function getBranch() {
@@ -75,6 +81,11 @@ function setOutputs(map) {
 
 (async function main() {
   try {
+    console.error('[DEBUG] Starting semver script');
+    console.error('[DEBUG] MODE:', MODE);
+    console.error('[DEBUG] CONFIG_FILE:', CONFIG_FILE);
+    console.error('[DEBUG] TAG_PREFIX:', TAG_PREFIX);
+
     ensureHistory();
 
     // Capture SHAs and branch
@@ -86,19 +97,34 @@ function setOutputs(map) {
     const buildDateUtc = new Date().toISOString().replace(/\.\d{3}Z$/, "Z");
 
     // Load semver from override or version.txt
+    console.error('[DEBUG] Loading base version from config file');
     const base = OVERRIDE ? parseSemver(OVERRIDE) : readSemverFromFile(CONFIG_FILE);
+    console.error('[DEBUG] Base version:', base);
     const baseMM = `${base.major}.${base.minor}`;
     const basePatch = Number.isFinite(base.patch) ? Math.max(0, Math.trunc(base.patch)) : 0;
+    console.error('[DEBUG] Base MM:', baseMM, 'Patch:', basePatch);
 
     // Compute increment per mode
     let inc = 0;
+    console.error('[DEBUG] Computing increment for mode:', MODE);
     switch (MODE) {
-      case "branch":        inc = getIncrementBranch(); break;
-      case "config-change": inc = getIncrementSinceMMChange(CONFIG_FILE, baseMM); break;
-      case "tag":           inc = getIncrementSinceTag(base.major, base.minor, TAG_PREFIX); break;
+      case "branch":
+        console.error('[DEBUG] Using branch mode');
+        inc = getIncrementBranch();
+        break;
+      case "config-change":
+        console.error('[DEBUG] Using config-change mode');
+        inc = getIncrementSinceMMChange(CONFIG_FILE, baseMM);
+        break;
+      case "tag":
+        console.error('[DEBUG] Using tag mode');
+        inc = getIncrementSinceTag(base.major, base.minor, TAG_PREFIX);
+        break;
       default: throw new Error(`Unknown mode "${MODE}" (use: branch | config-change | tag)`);
     }
+    console.error('[DEBUG] Raw increment:', inc);
     inc = Number.isFinite(inc) ? Math.max(0, Math.trunc(inc)) : 0;
+    console.error('[DEBUG] Final increment:', inc);
 
     // Final PATCH = file.patch + increment
     const patch = basePatch + inc;
