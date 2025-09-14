@@ -13,6 +13,8 @@ export interface DriveLinkSettings {
     syncOnStartup: boolean;
     syncOnFileChange: boolean;
     conflictResolution: 'last-writer-wins' | 'manual';
+    allowedFileExtensions: string[];
+    enableExtensionFiltering: boolean;
 }
 
 /**
@@ -31,7 +33,9 @@ export const DEFAULT_SETTINGS: DriveLinkSettings = {
     ],
     syncOnStartup: false,
     syncOnFileChange: false,
-    conflictResolution: 'last-writer-wins'
+    conflictResolution: 'last-writer-wins',
+    allowedFileExtensions: ['md', 'pdf'],
+    enableExtensionFiltering: false
 };
 
 /**
@@ -379,6 +383,9 @@ export class DriveLinkSettingTab extends PluginSettingTab {
     private addAdvancedSection(containerEl: HTMLElement): void {
         containerEl.createEl('h3', { text: 'Advanced Settings' });
 
+        // File extension filtering
+        this.addExtensionFilteringSection(containerEl);
+
         // Ignore patterns
         const ignoreDesc = containerEl.createDiv();
         ignoreDesc.innerHTML = `
@@ -403,5 +410,59 @@ export class DriveLinkSettingTab extends PluginSettingTab {
                         .filter(line => line.length > 0);
                     await this.plugin.saveSettings();
                 }));
+    }
+
+    private addExtensionFilteringSection(containerEl: HTMLElement): void {
+        // Enable/disable extension filtering toggle
+        new Setting(containerEl)
+            .setName('Enable file extension filtering')
+            .setDesc('Only sync files with specific extensions. When disabled, all files (except ignored patterns) will be synced.')
+            .addToggle(toggle => toggle
+                .setValue(this.plugin.settings.enableExtensionFiltering)
+                .onChange(async (value) => {
+                    this.plugin.settings.enableExtensionFiltering = value;
+                    await this.plugin.saveSettings();
+                    this.display(); // Refresh to show/hide extension list
+                }));
+
+        // Extension list (only show when filtering is enabled)
+        if (this.plugin.settings.enableExtensionFiltering) {
+            const extensionDesc = containerEl.createDiv();
+            extensionDesc.innerHTML = `
+                <p>File extensions to sync (one per line, without the dot):</p>
+                <ul>
+                    <li><code>md</code> - Markdown files</li>
+                    <li><code>pdf</code> - PDF documents</li>
+                    <li><code>txt</code> - Text files</li>
+                    <li><code>png</code> - PNG images</li>
+                </ul>
+            `;
+
+            new Setting(containerEl)
+                .setName('Allowed file extensions')
+                .setDesc('Enter file extensions without the dot (e.g., "md", "pdf", "txt")')
+                .addTextArea(text => text
+                    .setPlaceholder('md\npdf\ntxt\npng\njpeg')
+                    .setValue(this.plugin.settings.allowedFileExtensions.join('\n'))
+                    .onChange(async (value) => {
+                        this.plugin.settings.allowedFileExtensions = value
+                            .split('\n')
+                            .map(line => line.trim().toLowerCase())
+                            .filter(line => line.length > 0)
+                            .filter(line => /^[a-zA-Z0-9]+$/.test(line)); // Only allow alphanumeric extensions
+                        await this.plugin.saveSettings();
+                    }));
+
+            // Show current extensions count
+            const currentExtensions = this.plugin.settings.allowedFileExtensions;
+            if (currentExtensions.length > 0) {
+                const statusEl = containerEl.createDiv({
+                    cls: 'setting-item-description',
+                    text: `Currently allowing: ${currentExtensions.map(ext => '.' + ext).join(', ')}`
+                });
+                statusEl.style.fontStyle = 'italic';
+                statusEl.style.marginTop = '8px';
+            }
+        }
     }
 }

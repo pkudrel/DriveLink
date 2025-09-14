@@ -5,6 +5,7 @@ import { DriveChangeDetection } from '../drive/change-detection';
 import { IndexManager, IndexComparison, LocalFileEntry } from './index-manager';
 import { ConflictResolver } from './conflict-resolver';
 import { DriveLinkSettings } from '../settings';
+import { shouldSyncFile } from '../utils/extension-filter';
 
 /**
  * Sync operation result
@@ -131,7 +132,9 @@ export class SyncEngine {
 
             const comparison = await this.indexManager.compareWithRemoteFiles(
                 remoteFiles,
-                this.settings.ignoreGlobs
+                this.settings.ignoreGlobs,
+                this.settings.enableExtensionFiltering,
+                this.settings.allowedFileExtensions
             );
 
             // Calculate total operations
@@ -316,8 +319,17 @@ export class SyncEngine {
     ): Promise<void> {
         const filesToDownload: DriveFile[] = [];
 
-        // Include new remote files
-        filesToDownload.push(...comparison.newRemote);
+        // Include new remote files (filter by extensions)
+        for (const remoteFile of comparison.newRemote) {
+            if (shouldSyncFile(
+                remoteFile.name,
+                this.settings.enableExtensionFiltering,
+                this.settings.allowedFileExtensions,
+                this.settings.ignoreGlobs
+            )) {
+                filesToDownload.push(remoteFile);
+            }
+        }
 
         // Build a lookup for remote files
         const remoteById = new Map<string, DriveFile>();

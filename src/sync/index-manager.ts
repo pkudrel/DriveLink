@@ -1,5 +1,6 @@
 import { Plugin, TFile, TAbstractFile } from 'obsidian';
 import { DriveFile } from '../drive/client';
+import { shouldSyncFile } from '../utils/extension-filter';
 
 /**
  * Local file metadata entry
@@ -111,15 +112,24 @@ export class IndexManager {
     /**
      * Get all files in the vault with their metadata
      */
-    async scanVaultFiles(ignorePatterns: string[] = []): Promise<Map<string, TFile>> {
+    async scanVaultFiles(
+        ignorePatterns: string[] = [],
+        enableExtensionFiltering: boolean = false,
+        allowedFileExtensions: string[] = []
+    ): Promise<Map<string, TFile>> {
         const files = new Map<string, TFile>();
         const vault = this.plugin.app.vault;
 
         const allFiles = vault.getFiles();
 
         for (const file of allFiles) {
-            // Check if file should be ignored
-            if (this.shouldIgnoreFile(file.path, ignorePatterns)) {
+            // Check if file should be synced based on ignore patterns and extension filtering
+            if (!shouldSyncFile(
+                file.path,
+                enableExtensionFiltering,
+                allowedFileExtensions,
+                ignorePatterns
+            )) {
                 continue;
             }
 
@@ -196,8 +206,16 @@ export class IndexManager {
     /**
      * Detect changes between local files and index
      */
-    async detectLocalChanges(ignorePatterns: string[] = []): Promise<ChangeDetectionResult> {
-        const currentFiles = await this.scanVaultFiles(ignorePatterns);
+    async detectLocalChanges(
+        ignorePatterns: string[] = [],
+        enableExtensionFiltering: boolean = false,
+        allowedFileExtensions: string[] = []
+    ): Promise<ChangeDetectionResult> {
+        const currentFiles = await this.scanVaultFiles(
+            ignorePatterns,
+            enableExtensionFiltering,
+            allowedFileExtensions
+        );
         const comparison: IndexComparison = {
             localChanges: [],
             remoteChanges: [],
@@ -248,9 +266,15 @@ export class IndexManager {
      */
     async compareWithRemoteFiles(
         remoteFiles: DriveFile[],
-        ignorePatterns: string[] = []
+        ignorePatterns: string[] = [],
+        enableExtensionFiltering: boolean = false,
+        allowedFileExtensions: string[] = []
     ): Promise<IndexComparison> {
-        const localResult = await this.detectLocalChanges(ignorePatterns);
+        const localResult = await this.detectLocalChanges(
+            ignorePatterns,
+            enableExtensionFiltering,
+            allowedFileExtensions
+        );
         const comparison = localResult.comparison;
 
         // Create map of remote files by ID and path
@@ -374,8 +398,16 @@ export class IndexManager {
     /**
      * Rebuild index from current vault state
      */
-    async rebuildIndex(ignorePatterns: string[] = []): Promise<void> {
-        const files = await this.scanVaultFiles(ignorePatterns);
+    async rebuildIndex(
+        ignorePatterns: string[] = [],
+        enableExtensionFiltering: boolean = false,
+        allowedFileExtensions: string[] = []
+    ): Promise<void> {
+        const files = await this.scanVaultFiles(
+            ignorePatterns,
+            enableExtensionFiltering,
+            allowedFileExtensions
+        );
 
         // Keep existing Drive mappings but update file metadata
         const newIndex = this.createEmptyIndex();
