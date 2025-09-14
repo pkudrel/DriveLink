@@ -71,9 +71,23 @@ function getVersionInfo() {
 
     try {
         // Run the semver action script and parse key=value outputs
+        console.log('Debug: About to run semver script with config file:', process.env.INPUT_CONFIG_FILE);
+        console.log('Debug: Semver script path:', semverScript);
+        console.log('Debug: Config file exists:', fs.existsSync(process.env.INPUT_CONFIG_FILE));
+
         const semverOutput = exec(`node "${semverScript}"`, true);
+        console.log('Debug: Semver output:', semverOutput);
 
         if (!semverOutput) {
+            // Try running with stderr to see what's wrong
+            console.log('Debug: Attempting to run semver with stderr...');
+            try {
+                const semverResult = execSync(`node "${semverScript}"`, { encoding: 'utf8', stdio: 'pipe' });
+                console.log('Debug: Semver stderr result:', semverResult);
+            } catch (error) {
+                console.log('Debug: Semver stderr error:', error.stderr);
+                console.log('Debug: Semver stdout error:', error.stdout);
+            }
             throw new Error('Semver action produced no output');
         }
 
