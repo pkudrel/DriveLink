@@ -1,5 +1,6 @@
 import { App, PluginSettingTab, Setting } from 'obsidian';
 import DriveLinkPlugin from './main';
+import { CLIIntegration } from './utils/cli-integration';
 
 /**
  * Plugin settings interface
@@ -74,6 +75,9 @@ export class DriveLinkSettingTab extends PluginSettingTab {
     private addOAuthSection(containerEl: HTMLElement): void {
         containerEl.createEl('h3', { text: 'Google OAuth Configuration' });
 
+        // Add SimpleToken integration info first
+        this.addSimpleTokenSection(containerEl);
+
         // Client ID Setting
         new Setting(containerEl)
             .setName('Google OAuth Client ID')
@@ -110,6 +114,109 @@ export class DriveLinkSettingTab extends PluginSettingTab {
         this.addConnectionStatus(containerEl);
     }
 
+    private addSimpleTokenSection(containerEl: HTMLElement): void {
+        const simpleTokenContainer = containerEl.createDiv({ cls: 'drivelink-simple-token-section' });
+
+        // SimpleToken header
+        const headerEl = simpleTokenContainer.createEl('h4', { text: '🔐 SimpleToken CLI Integration' });
+        headerEl.style.marginBottom = '8px';
+
+        // Description
+        const descEl = simpleTokenContainer.createEl('p', {
+            cls: 'setting-item-description',
+            text: 'Use SimpleToken CLI for easier token generation. Run the CLI tool separately and paste the generated tokens here.'
+        });
+        descEl.style.marginBottom = '16px';
+
+        // CLI detection status
+        this.addCLIStatus(simpleTokenContainer);
+
+        // Token import area
+        this.addTokenImport(simpleTokenContainer);
+    }
+
+    private addCLIStatus(containerEl: HTMLElement): void {
+        const statusEl = containerEl.createDiv({ cls: 'drivelink-cli-status' });
+
+        // Check CLI availability
+        const cliDetection = CLIIntegration.detectSimpleTokenCLI();
+        const statusText = cliDetection.available
+            ? `✅ SimpleToken CLI detected (${cliDetection.method})`
+            : '⚠️ SimpleToken CLI not detected';
+
+        statusEl.createSpan({ text: statusText });
+
+        if (cliDetection.available) {
+            const instructions = CLIIntegration.getSetupInstructions();
+            const instructionEl = statusEl.createDiv({
+                cls: 'drivelink-cli-instructions',
+                text: instructions.command ? `Run: ${instructions.command}` : ''
+            });
+            instructionEl.style.fontSize = '0.85em';
+            instructionEl.style.color = 'var(--text-muted)';
+            instructionEl.style.marginTop = '4px';
+        }
+    }
+
+    private addTokenImport(containerEl: HTMLElement): void {
+        const importContainer = containerEl.createDiv({ cls: 'drivelink-token-import' });
+
+        // Token paste area
+        new Setting(importContainer)
+            .setName('Paste SimpleToken Output')
+            .setDesc('Copy the JSON output from SimpleToken CLI and paste it here')
+            .addTextArea(text => {
+                text.setPlaceholder('Paste SimpleToken JSON output here...\n{\n  "access_token": "...",\n  "refresh_token": "...",\n  ...\n}');
+                text.inputEl.rows = 6;
+                text.inputEl.style.fontFamily = 'monospace';
+                text.inputEl.style.fontSize = '0.85em';
+
+                // Add import button after the textarea
+                const buttonContainer = text.inputEl.parentElement?.createDiv({ cls: 'drivelink-import-actions' });
+                if (buttonContainer) {
+                    buttonContainer.style.marginTop = '8px';
+
+                    const importBtn = buttonContainer.createEl('button', {
+                        text: 'Import Tokens',
+                        cls: 'drivelink-button'
+                    });
+
+                    const clearBtn = buttonContainer.createEl('button', {
+                        text: 'Clear',
+                        cls: 'drivelink-button secondary'
+                    });
+                    clearBtn.style.marginLeft = '8px';
+
+                    importBtn.addEventListener('click', async () => {
+                        const tokenData = text.getValue().trim();
+                        if (!tokenData) {
+                            // Could show a notice here
+                            return;
+                        }
+
+                        try {
+                            const success = await this.plugin.tokenManager.importSimpleTokenData(tokenData);
+                            if (success) {
+                                text.setValue(''); // Clear the input
+                                this.display(); // Refresh the settings tab
+                                // Could show success notice here
+                            } else {
+                                // Could show error notice here
+                                console.error('Failed to import token data');
+                            }
+                        } catch (error) {
+                            console.error('Import failed:', error);
+                            // Could show error notice here
+                        }
+                    });
+
+                    clearBtn.addEventListener('click', () => {
+                        text.setValue('');
+                    });
+                }
+            });
+    }
+
     private async addConnectionStatus(containerEl: HTMLElement): Promise<void> {
         const statusContainer = containerEl.createDiv({ cls: 'drivelink-connection-status' });
 
@@ -125,12 +232,31 @@ export class DriveLinkSettingTab extends PluginSettingTab {
             text: tokenStatus.connected ? 'Connected' : 'Disconnected'
         });
 
+        // Show token source
+        if (tokenStatus.connected && tokenStatus.source !== 'none') {
+            const sourceText = tokenStatus.source === 'simple_token'
+                ? '(via SimpleToken CLI)'
+                : '(manual OAuth)';
+            statusEl.createSpan({
+                text: ` ${sourceText}`,
+                cls: 'drivelink-token-source'
+            }).style.color = 'var(--text-muted)';
+        }
+
         if (tokenStatus.connected && tokenStatus.expiresAt) {
             const expiryDate = new Date(tokenStatus.expiresAt);
             statusContainer.createDiv({
                 text: `Token expires: ${expiryDate.toLocaleString()}`,
                 cls: 'drivelink-token-expiry'
             });
+        }
+
+        // Show SimpleToken availability status
+        if (tokenStatus.simpleTokenAvailable && !tokenStatus.connected) {
+            statusContainer.createDiv({
+                text: '💡 SimpleToken CLI detected - you can use it for easier setup',
+                cls: 'drivelink-hint'
+            }).style.fontSize = '0.85em';
         }
 
         // Action buttons

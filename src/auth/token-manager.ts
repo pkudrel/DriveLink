@@ -1,5 +1,6 @@
 import { Plugin } from 'obsidian';
 import { OAuthManager } from './oauth';
+import { SimpleTokenBridge } from './simple-token-bridge';
 
 /**
  * Stored token data
@@ -19,11 +20,13 @@ const TOKEN_STORAGE_KEY = 'drivelink-tokens';
 
 /**
  * Manages OAuth tokens for Google Drive API access
+ * Supports both manual OAuth flow and SimpleToken CLI integration
  */
 export class TokenManager {
     private plugin: Plugin;
     private oauthManager: OAuthManager | null = null;
     private tokens: TokenData | null = null;
+    private useSimpleToken: boolean = false;
 
     constructor(plugin: Plugin) {
         this.plugin = plugin;
@@ -90,12 +93,76 @@ export class TokenManager {
     }
 
     /**
+     * Initialize with SimpleToken CLI integration (auto-detect tokens)
+     */
+    async initializeWithSimpleToken(): Promise<boolean> {
+        try {
+            // Try to load tokens from SimpleToken CLI storage
+            const simpleTokenData = await SimpleTokenBridge.getTokenDataFromSimpleToken();
+            if (simpleTokenData) {
+                this.tokens = simpleTokenData;
+                this.useSimpleToken = true;
+
+                // Store in plugin data as fallback
+                await this.storeTokens(simpleTokenData);
+
+                console.log('TokenManager: Initialized with SimpleToken CLI tokens');
+                return true;
+            }
+
+            return false;
+        } catch (error) {
+            console.warn('TokenManager: Failed to initialize with SimpleToken:', error.message);
+            return false;
+        }
+    }
+
+    /**
+     * Import tokens from SimpleToken CLI output (copy-paste scenario)
+     */
+    async importSimpleTokenData(tokenString: string): Promise<boolean> {
+        try {
+            const tokenData = JSON.parse(tokenString);
+
+            // Validate token structure
+            if (!tokenData.access_token) {
+                throw new Error('Invalid token data: missing access_token');
+            }
+
+            // Convert to internal format
+            const internalTokenData: TokenData = {
+                accessToken: tokenData.access_token,
+                refreshToken: tokenData.refresh_token,
+                expiresAt: tokenData.expires_in ?
+                    Date.now() + (tokenData.expires_in * 1000) :
+                    Date.now() + (60 * 60 * 1000), // Default 1 hour
+                tokenType: tokenData.token_type || 'Bearer',
+                scope: tokenData.scope || 'https://www.googleapis.com/auth/drive'
+            };
+
+            // Store tokens
+            await this.storeTokens(internalTokenData);
+            this.tokens = internalTokenData;
+            this.useSimpleToken = true;
+
+            console.log('TokenManager: Successfully imported SimpleToken data');
+            return true;
+        } catch (error) {
+            console.error('TokenManager: Failed to import SimpleToken data:', error.message);
+            return false;
+        }
+    }
+
+    /**
      * Get a valid access token, refreshing if necessary
      */
     async getValidAccessToken(): Promise<string> {
-        // Load tokens if not already loaded
+        // First try to load tokens from SimpleToken CLI if not already loaded
         if (!this.tokens) {
-            await this.loadTokens();
+            const simpleTokenInitialized = await this.initializeWithSimpleToken();
+            if (!simpleTokenInitialized) {
+                await this.loadTokens();
+            }
         }
 
         if (!this.tokens) {
@@ -203,17 +270,65 @@ export class TokenManager {
     /**
      * Get current token status for UI display
      */
-    async getTokenStatus(): Promise<{ connected: boolean; expiresAt?: number }> {
-        await this.loadTokens();
+    async getTokenStatus(): Promise<{
+        connected: boolean;
+        expiresAt?: number;
+        source: 'manual' | 'simple_token' | 'none';
+        simpleTokenAvailable: boolean;
+    }> {
+        // Check SimpleToken availability
+        const simpleTokenStatus = await SimpleTokenBridge.getIntegrationStatus();
+
+        // Try SimpleToken first, then fallback to stored tokens
+        if (!this.tokens) {
+            const simpleTokenInitialized = await this.initializeWithSimpleToken();
+            if (!simpleTokenInitialized) {
+                await this.loadTokens();
+            }
+        }
 
         if (!this.tokens) {
-            return { connected: false };
+            return {
+                connected: false,
+                source: 'none',
+                simpleTokenAvailable: simpleTokenStatus.available
+            };
         }
 
         return {
             connected: true,
-            expiresAt: this.tokens.expiresAt
+            expiresAt: this.tokens.expiresAt,
+            source: this.useSimpleToken ? 'simple_token' : 'manual',
+            simpleTokenAvailable: simpleTokenStatus.available
         };
+    }
+
+    /**
+     * Get SimpleToken integration status for UI display
+     */
+    async getSimpleTokenStatus(): Promise<{
+        available: boolean;
+        hasCredentials: boolean;
+        hasTokens: boolean;
+        tokensValid: boolean;
+        storageLocation: string;
+    }> {
+        return await SimpleTokenBridge.getIntegrationStatus();
+    }
+
+    /**
+     * Switch to manual OAuth mode (disable SimpleToken)
+     */
+    switchToManualMode(): void {
+        this.useSimpleToken = false;
+        console.log('TokenManager: Switched to manual OAuth mode');
+    }
+
+    /**
+     * Check if currently using SimpleToken integration
+     */
+    isUsingSimpleToken(): boolean {
+        return this.useSimpleToken;
     }
 
     /**
@@ -221,6 +336,7 @@ export class TokenManager {
      */
     async disconnect(): Promise<void> {
         await this.clearTokens();
+        this.useSimpleToken = false;
         // Note: Could also call Google's revoke endpoint here if needed
         console.log('Disconnected from Google Drive');
     }

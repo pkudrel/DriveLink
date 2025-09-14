@@ -18,7 +18,13 @@
       "Bash(set INPUT_CONFIG_FILE=version.txt)",
       "Bash(set INPUT_MODE=config-change)",
       "Bash(set INPUT_TAG_PREFIX=v)",
-      "Read(//w/tmp/**)"
+      "Read(//w/tmp/**)",
+      "Bash(tree:*)",
+      "Bash(npm run token-status:*)",
+      "Bash(npm run simple-token -- --help)",
+      "Bash(npm run simple-token -- --status)",
+      "Bash(npm run simple-token -- --guide)",
+      "Bash(npm run simple-token -- --verify)"
     ],
     "deny": [],
     "ask": []

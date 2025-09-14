@@ -12,6 +12,12 @@
     "release": "node scripts/release.js",
     "release:skip-build": "node scripts/release.js --skip-build",
     "release:clean": "node scripts/release.js --clean",
+    "simple-token": "node scripts/simple-token.js",
+    "token-setup": "node scripts/simple-token.js",
+    "token-verify": "node scripts/simple-token.js --verify",
+    "token-guide": "node scripts/simple-token.js --guide",
+    "token-status": "node scripts/simple-token.js --status",
+    "token-reset": "node scripts/simple-token.js --reset",
     "prebuild": "npm run version",
     "prepack": "npm run build:local"
   },
