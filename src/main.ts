@@ -10,7 +10,6 @@ export default class DriveLinkPlugin extends Plugin {
 	driveClient: DriveClient;
 	syncEngine: SyncEngine;
 
-	
 	async onload() {
 		await this.loadSettings();
 
