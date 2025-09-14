@@ -5,7 +5,7 @@ This document describes the local build system for the DriveLink Obsidian plugin
 ## Overview
 
 The DriveLink plugin uses a custom build system that:
-- ✅ **Reads version from `version.txt`** (currently `0.1.0`)
+- ✅ **Reads version from `version.txt`** (currently `0.1.34`)
 - ✅ **Uses existing semver action** from `.github/actions/semver-js/`
 - ✅ **Updates `manifest.json`** with current version
 - ✅ **Creates `versions.json`** for Obsidian compatibility
@@ -47,7 +47,7 @@ npm run version
 
 ```
 DriveLink/
-├── version.txt              # Source of truth for version (0.1.0)
+├── version.txt              # Source of truth for version (0.1.34)
 ├── manifest.json            # Updated by build script
 ├── versions.json            # Created by build script
 ├── build-info.json          # Build metadata
@@ -69,7 +69,7 @@ DriveLink/
 ## Build Process
 
 1. **Version Resolution**
-   - Reads `version.txt` (e.g., `0.1.0`)
+   - Reads `version.txt` (e.g., `0.1.34`)
    - Uses semver action logic to get git metadata
    - Generates version info with commit SHA, branch, etc.
 
@@ -98,11 +98,11 @@ The build system uses `version.txt` as the single source of truth:
 ```bash
 # Current version
 cat version.txt
-# Output: 0.1.0
+# Output: 0.1.34
 
 # Bump patch version
 node scripts/bump-version.js patch
-# version.txt becomes: 0.1.1
+# version.txt becomes: 0.1.35
 
 # Set specific version
 node scripts/bump-version.js set 1.0.0
@@ -143,11 +143,11 @@ The build script provides clear, colored output:
 ### Version Information
 Each build displays:
 ```
-📦 Version: 0.1.0
-🏷️  Tag: v0.1.0
-🌿 Branch: main
-📝 Commit: 816ad09
-📅 Build Date: 2025-09-13T08:05:43.658Z
+📦 Version: 0.1.34
+🏷️  Tag: v0.1.34
+🌿 Branch: production
+📝 Commit: 06ac632
+📅 Build Date: 2025-09-14T18:05:43.658Z
 ```
 
 ### Build Validation
@@ -171,15 +171,15 @@ $ npm run build:local
 🚀 DriveLink Plugin Build Script
 
 [1] Getting version information...
-📦 Version: 0.1.0
-🏷️  Tag: v0.1.0
-🌿 Branch: main
-📝 Commit: 816ad09
-📅 Build Date: 2025-09-13T08:05:43.658Z
+📦 Version: 0.1.34
+🏷️  Tag: v0.1.34
+🌿 Branch: production
+📝 Commit: 06ac632
+📅 Build Date: 2025-09-14T18:05:43.658Z
 [2] Updating manifest.json...
-✅ Updated manifest.json to version 0.1.0
+✅ Updated manifest.json to version 0.1.34
 [3] Updating versions.json...
-✅ Updated versions.json with version 0.1.0
+✅ Updated versions.json with version 0.1.34
 [4] Building plugin (production)...
 ✅ Plugin built successfully
 [5] Creating build info...
@@ -188,7 +188,7 @@ $ npm run build:local
 ✅ All required files present
 
 🎉 Build completed successfully!
-📦 Plugin version: 0.1.0
+📦 Plugin version: 0.1.34
 📂 Output: main.js, manifest.json, styles.css
 
 Ready to install:
@@ -217,7 +217,7 @@ npm install
 **Version conflicts:**
 ```bash
 # Reset to a clean version
-node scripts/bump-version.js set 0.1.0
+node scripts/bump-version.js set 0.1.34
 ```
 
 **Build output missing:**

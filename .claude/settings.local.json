@@ -24,7 +24,9 @@
       "Bash(npm run simple-token -- --help)",
       "Bash(npm run simple-token -- --status)",
       "Bash(npm run simple-token -- --guide)",
-      "Bash(npm run simple-token -- --verify)"
+      "Bash(npm run simple-token -- --verify)",
+      "Bash(cat:*)",
+      "Bash(find:*)"
     ],
     "deny": [],
     "ask": []

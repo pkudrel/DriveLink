@@ -11,6 +11,12 @@ yarn-error.log*
 /build-info.json
 /versions.json
 
+# Agent artifacts (keep current work, archive completed)
+/.agents/archived/
+/.agents/issues/*/state.json
+/.agents/issues/*/plan.md
+/.claude/settings.local.json
+
 # Development files
 .DS_Store
 Thumbs.db
@@ -88,3 +94,20 @@ versions.json
 
 # Release artifacts
 releases/
+
+# Runtime generated files
+*.bak
+*~
+.sass-cache/
+*.css.map
+*.js.map
+
+# Editor temporary files
+*.swp
+*.swo
+.#*
+*#
+
+# Package manager locks (keep package-lock.json, ignore yarn.lock)
+yarn.lock
+pnpm-lock.yaml

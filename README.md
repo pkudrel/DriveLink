@@ -178,33 +178,71 @@ See [BUILD.md](BUILD.md) for detailed build documentation.
 ### Project Structure
 
 ```
-src/
-├── auth/              # OAuth 2.0 authentication
-│   ├── oauth.ts       # PKCE flow implementation
-│   └── token-manager.ts # Token storage & refresh
-├── drive/             # Google Drive API integration
-│   ├── client.ts      # Drive API wrapper
-│   ├── file-operations.ts # Upload/download
-│   └── change-detection.ts # Change tracking
-├── sync/              # Synchronization engine
-│   ├── index-manager.ts # Local file indexing
-│   ├── sync-engine.ts # Main sync logic
-│   └── conflict-resolver.ts # Conflict handling
-├── utils/             # Utility functions
-│   ├── crypto.ts      # PKCE crypto helpers
-│   └── file-utils.ts  # File pattern matching
-├── settings.ts        # Plugin settings UI
-├── styles.css         # Plugin UI styles
-└── main.ts           # Plugin entry point
-
-scripts/
-├── build.js          # Build orchestrator with version management
-└── release.js        # Release packaging system
-
-.github/
-├── workflows/
-│   └── release.yml   # Automated release workflow
-└── actions/semver-js/ # Custom semver action
+DriveLink/
+├── src/                           # TypeScript source code
+│   ├── auth/                      # OAuth 2.0 authentication
+│   │   ├── oauth.ts               # PKCE flow implementation
+│   │   ├── simple-token-bridge.ts # Simple token integration
+│   │   └── token-manager.ts       # Token storage & refresh
+│   ├── drive/                     # Google Drive API integration
+│   │   ├── client.ts              # Drive API wrapper
+│   │   ├── file-operations.ts     # Upload/download operations
+│   │   └── change-detection.ts    # Change tracking utilities
+│   ├── sync/                      # Synchronization engine
+│   │   ├── index-manager.ts       # Local file indexing
+│   │   ├── sync-engine.ts         # Main sync orchestration
+│   │   └── conflict-resolver.ts   # Conflict resolution logic
+│   ├── utils/                     # Utility functions
+│   │   ├── crypto.ts              # PKCE crypto helpers
+│   │   ├── file-utils.ts          # File pattern matching
+│   │   └── cli-integration.ts     # CLI tool integration
+│   ├── settings.ts                # Plugin settings UI
+│   ├── styles.css                 # Plugin UI styles
+│   └── main.ts                    # Plugin entry point
+│
+├── scripts/                       # Build & deployment tools
+│   ├── lib/                       # Shared utilities
+│   │   ├── credential-manager.js  # Secure credential storage
+│   │   ├── gcp-guide.js          # Google Cloud setup guide
+│   │   ├── oauth-helper.js       # OAuth flow automation
+│   │   ├── templates.js          # Configuration templates
+│   │   └── validators.js         # Input validation
+│   ├── build.js                  # Build orchestrator
+│   ├── release.js                # Release packaging
+│   └── simple-token.js           # Token generation CLI
+│
+├── .agents/                       # Agent development artifacts
+│   ├── archived/                  # Completed issues (DRIVELINK-001-005)
+│   ├── issues/                    # Active development issues
+│   └── config.md                  # Agent configuration
+│
+├── .github/                       # CI/CD automation
+│   ├── workflows/
+│   │   ├── release.yml            # Automated releases
+│   │   └── token-page.yml         # GitHub Pages deployment
+│   └── actions/semver-js/         # Custom semver action
+│       ├── action.yml
+│       └── index.js
+│
+├── callback/                      # OAuth callback pages
+│   └── drive/
+│       └── index.html             # Google Drive OAuth callback
+│
+├── token-form/                    # Web-based token generator
+│   ├── index.html                 # Token generation UI
+│   ├── script.js                  # OAuth flow handling
+│   ├── styles.css                 # UI styling
+│   └── README.md                  # Token form documentation
+│
+├── package.json                   # Dependencies & scripts
+├── manifest.json                  # Obsidian plugin metadata
+├── tsconfig.json                  # TypeScript configuration
+├── esbuild.config.mjs            # Build configuration
+├── version.txt                    # Version source of truth
+├── README.md                      # Main documentation
+├── BUILD.md                       # Build system documentation
+├── AGENTS.md                      # Agent development chronicle
+└── .gitignore                     # Git ignore patterns
 ```
 
 ## Contributing
