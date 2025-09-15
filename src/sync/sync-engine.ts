@@ -304,10 +304,17 @@ export class SyncEngine {
             wasBootstrapped = changeResult.wasBootstrapped;
 
             if (changeResult.wasBootstrapped) {
-                // Token was bootstrapped fresh, no meaningful changes to process
-                this.logger.info('Change detection was bootstrapped fresh - establishing new baseline');
-                allFiles = []; // Empty changes, just establishing baseline
-                syncStrategy = 'change-detection-bootstrap';
+                // Token was bootstrapped fresh, need to do full scan to capture existing files
+                this.logger.info('Change detection was bootstrapped fresh - performing full scan to capture existing files');
+
+                allFiles = await this.getRemoteFilesRecursive(
+                    this.settings.driveFolderId,
+                    '',
+                    onProgress,
+                    false // Force full scan, not timestamp-based
+                );
+
+                syncStrategy = 'change-detection-bootstrap-with-full-scan';
             } else if (changeResult.changes.length === 0) {
                 // No changes detected
                 this.logger.info('No changes detected via change detection');
