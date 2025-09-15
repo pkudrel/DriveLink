@@ -81,6 +81,8 @@ export class DriveChangeDetection {
 
         const url = `${this.baseUrl}/changes/startPageToken${params.toString() ? '?' + params.toString() : ''}`;
 
+        console.log(`[ChangeDetection] Requesting fresh start page token from: ${url}`);
+
         const response = await fetch(url, {
             headers: {
                 'Authorization': `Bearer ${accessToken}`
@@ -88,10 +90,13 @@ export class DriveChangeDetection {
         });
 
         if (!response.ok) {
+            const errorText = await response.text();
+            console.error(`[ChangeDetection] Failed to get start page token: ${response.status} ${response.statusText}`, errorText);
             throw new Error(`Failed to get start page token: ${response.status} ${response.statusText}`);
         }
 
         const data = await response.json();
+        console.log(`[ChangeDetection] Google Drive returned start page token:`, data);
         return data.startPageToken;
     }
 
@@ -174,7 +179,9 @@ export class DriveChangeDetection {
                 // If pageToken is invalid (400 error), reset change detection
                 if (error.message?.includes('400')) {
                     console.warn('Invalid page token, resetting change detection:', error.message);
+                    console.log(`[ChangeDetection] Getting fresh start token to replace invalid token: ${currentPageToken}`);
                     const startToken = await this.getStartPageToken(options);
+                    console.log(`[ChangeDetection] Received fresh start token: ${startToken}`);
                     await this.storePageToken(startToken);
                     return { changes: [], newPageToken: startToken };
                 }
