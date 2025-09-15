@@ -261,6 +261,29 @@ export class DriveChangeDetection {
      * Reset change detection (useful after errors or re-sync)
      */
     async resetChangeDetection(options: ChangeDetectionOptions = {}): Promise<void> {
+        console.log(`[ChangeDetection] Resetting change detection`);
+        await this.clearStoredPageToken();
+        await this.initializeChangeDetection(options);
+    }
+
+    /**
+     * Force clear all tokens and reset change detection completely
+     */
+    async forceResetChangeDetection(options: ChangeDetectionOptions = {}): Promise<void> {
+        console.log(`[ChangeDetection] Force resetting change detection - clearing all tokens`);
+
+        // Clear from plugin settings
+        if (this.plugin && this.plugin.settings) {
+            this.plugin.settings.changeDetectionToken = undefined;
+            await this.plugin.saveSettings();
+        }
+
+        // Clear from localStorage
+        if (typeof localStorage !== 'undefined') {
+            localStorage.removeItem(this.pageTokenStorageKey);
+        }
+
+        // Initialize fresh
         await this.initializeChangeDetection(options);
     }
 
@@ -274,12 +297,22 @@ export class DriveChangeDetection {
                 timestamp: Date.now()
             };
 
+            let stored = false;
+
             // Use plugin data storage if available, otherwise fall back to localStorage
             if (this.plugin && this.plugin.settings) {
                 this.plugin.settings.changeDetectionToken = JSON.stringify(tokenData);
                 await this.plugin.saveSettings();
+                stored = true;
+                console.log(`[ChangeDetection] Stored token in plugin settings: ${token}`);
             } else if (typeof localStorage !== 'undefined') {
                 localStorage.setItem(this.pageTokenStorageKey, JSON.stringify(tokenData));
+                stored = true;
+                console.log(`[ChangeDetection] Stored token in localStorage: ${token}`);
+            }
+
+            if (!stored) {
+                console.warn(`[ChangeDetection] Failed to store token - no storage available`);
             }
         } catch (error) {
             console.error('Failed to store page token:', error);
@@ -293,22 +326,31 @@ export class DriveChangeDetection {
         try {
             // Retrieve from plugin data or localStorage
             let tokenDataStr: string | null = null;
+            let source = 'none';
 
             if (this.plugin && this.plugin.settings && this.plugin.settings.changeDetectionToken) {
                 tokenDataStr = this.plugin.settings.changeDetectionToken;
+                source = 'plugin-settings';
             } else if (typeof localStorage !== 'undefined') {
                 tokenDataStr = localStorage.getItem(this.pageTokenStorageKey);
+                source = 'localStorage';
             }
+
+            console.log(`[ChangeDetection] Token retrieval: source=${source}, hasToken=${!!tokenDataStr}`);
 
             if (!tokenDataStr) {
                 return null;
             }
 
             const tokenData: PageTokenData = JSON.parse(tokenDataStr);
+            const tokenAge = Date.now() - tokenData.timestamp;
+
+            console.log(`[ChangeDetection] Token details: token=${tokenData.token}, age=${Math.round(tokenAge/1000/60)}min`);
 
             // Check if token is too old (older than 7 days)
             const maxAge = 7 * 24 * 60 * 60 * 1000; // 7 days in milliseconds
-            if (Date.now() - tokenData.timestamp > maxAge) {
+            if (tokenAge > maxAge) {
+                console.log(`[ChangeDetection] Token too old, clearing`);
                 await this.clearStoredPageToken();
                 return null;
             }

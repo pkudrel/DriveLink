@@ -51,6 +51,12 @@ export default class DriveLinkPlugin extends Plugin {
 			callback: () => this.syncNow()
 		});
 
+		this.addCommand({
+			id: 'reset-change-detection',
+			name: 'Reset change detection',
+			callback: () => this.resetChangeDetection()
+		});
+
 		// Register obsidian protocol handler for OAuth callback
 		this.registerObsidianProtocolHandler('plugin-drivelink', async (params) => {
 			try {
@@ -138,6 +144,16 @@ export default class DriveLinkPlugin extends Plugin {
 			console.log('Sync completed successfully');
 		} catch (error) {
 			console.error('Sync failed:', error);
+		}
+	}
+
+	async resetChangeDetection() {
+		try {
+			console.log('Resetting change detection...');
+			await this.syncEngine.resetChangeDetection();
+			console.log('Change detection reset successfully');
+		} catch (error) {
+			console.error('Failed to reset change detection:', error);
 		}
 	}
 }

@@ -905,4 +905,12 @@ export class SyncEngine {
             changeDetectionStats: await this.changeDetection.getChangeDetectionStats()
         };
     }
+
+    /**
+     * Reset change detection to force fresh token
+     */
+    async resetChangeDetection(): Promise<void> {
+        this.logger.info('Manually resetting change detection');
+        await this.changeDetection.forceResetChangeDetection();
+    }
 }
