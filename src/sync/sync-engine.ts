@@ -79,7 +79,7 @@ export class SyncEngine {
 
         // Initialize components
         this.fileOperations = new DriveFileOperations(driveClient['tokenManager']);
-        this.changeDetection = new DriveChangeDetection(driveClient['tokenManager']);
+        this.changeDetection = new DriveChangeDetection(driveClient['tokenManager'], plugin);
         this.indexManager = new IndexManager(plugin);
         this.conflictResolver = new ConflictResolver(app, this.indexManager);
     }

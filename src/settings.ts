@@ -19,6 +19,7 @@ export interface DriveLinkSettings {
     concurrentUploads: number;
     debugLevel: LogLevel;
     lastSyncTime?: string; // ISO timestamp of last successful sync
+    changeDetectionToken?: string; // Stored change detection token for Drive Changes API
 }
 
 /**

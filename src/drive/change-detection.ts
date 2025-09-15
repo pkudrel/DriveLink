@@ -60,9 +60,11 @@ export class DriveChangeDetection {
     private tokenManager: TokenManager;
     private baseUrl = 'https://www.googleapis.com/drive/v3';
     private pageTokenStorageKey = 'drivelink-page-token';
+    private plugin: any; // Plugin reference for data storage
 
-    constructor(tokenManager: TokenManager) {
+    constructor(tokenManager: TokenManager, plugin?: any) {
         this.tokenManager = tokenManager;
+        this.plugin = plugin;
     }
 
     /**
@@ -267,14 +269,16 @@ export class DriveChangeDetection {
      */
     private async storePageToken(token: string): Promise<void> {
         try {
-            // This would need to be integrated with the plugin's data storage
             const tokenData: PageTokenData = {
                 token,
                 timestamp: Date.now()
             };
 
-            // Store in localStorage or plugin data
-            if (typeof localStorage !== 'undefined') {
+            // Use plugin data storage if available, otherwise fall back to localStorage
+            if (this.plugin && this.plugin.settings) {
+                this.plugin.settings.changeDetectionToken = JSON.stringify(tokenData);
+                await this.plugin.saveSettings();
+            } else if (typeof localStorage !== 'undefined') {
                 localStorage.setItem(this.pageTokenStorageKey, JSON.stringify(tokenData));
             }
         } catch (error) {
@@ -287,10 +291,12 @@ export class DriveChangeDetection {
      */
     private async getStoredPageToken(): Promise<string | null> {
         try {
-            // Retrieve from localStorage or plugin data
+            // Retrieve from plugin data or localStorage
             let tokenDataStr: string | null = null;
 
-            if (typeof localStorage !== 'undefined') {
+            if (this.plugin && this.plugin.settings && this.plugin.settings.changeDetectionToken) {
+                tokenDataStr = this.plugin.settings.changeDetectionToken;
+            } else if (typeof localStorage !== 'undefined') {
                 tokenDataStr = localStorage.getItem(this.pageTokenStorageKey);
             }
 
@@ -319,6 +325,11 @@ export class DriveChangeDetection {
      */
     private async clearStoredPageToken(): Promise<void> {
         try {
+            // Clear from plugin data and localStorage
+            if (this.plugin && this.plugin.settings) {
+                this.plugin.settings.changeDetectionToken = undefined;
+                await this.plugin.saveSettings();
+            }
             if (typeof localStorage !== 'undefined') {
                 localStorage.removeItem(this.pageTokenStorageKey);
             }
@@ -335,9 +346,14 @@ export class DriveChangeDetection {
         tokenAge?: number;
         lastCheckTime?: number;
     }> {
-        const tokenDataStr = typeof localStorage !== 'undefined'
-            ? localStorage.getItem(this.pageTokenStorageKey)
-            : null;
+        // Check plugin data first, then localStorage
+        let tokenDataStr: string | null = null;
+
+        if (this.plugin && this.plugin.settings && this.plugin.settings.changeDetectionToken) {
+            tokenDataStr = this.plugin.settings.changeDetectionToken;
+        } else if (typeof localStorage !== 'undefined') {
+            tokenDataStr = localStorage.getItem(this.pageTokenStorageKey);
+        }
 
         if (!tokenDataStr) {
             return { hasStoredToken: false };
