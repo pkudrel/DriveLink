@@ -17,7 +17,8 @@ export default class DriveLinkPlugin extends Plugin {
 		await this.loadSettings();
 
 		// Initialize logging system
-		Logger.setLevel(this.settings.debugLevel || LogLevel.INFO);
+		console.log('DriveLink: Setting log level to', this.settings.debugLevel, '(', Object.keys(LogLevel)[this.settings.debugLevel], ')');
+		Logger.setLevel(this.settings.debugLevel);
 		const logger = Logger.createComponentLogger('Main');
 		logger.info('DriveLink plugin loading...');
 
