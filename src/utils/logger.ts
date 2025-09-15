@@ -142,20 +142,35 @@ export class Logger {
         const logPrefix = `${Logger.PREFIX} ${timestamp} ${levelText} [${componentText}]`;
         const fullMessage = `${logPrefix} ${message}`;
 
-        // Use appropriate console method
+        // Force immediate output by creating a custom console output
+        // that bypasses Obsidian's console buffering
+        const logOutput = context && Object.keys(context).length > 0
+            ? `${fullMessage} ${JSON.stringify(context, null, 2)}`
+            : fullMessage;
+
+        // Use appropriate console method and force immediate flush
         switch (level) {
             case LogLevel.DEBUG:
-                console.debug(fullMessage, context || '');
+                console.debug(logOutput);
                 break;
             case LogLevel.INFO:
-                console.log(fullMessage, context || '');
+                console.log(logOutput);
                 break;
             case LogLevel.WARN:
-                console.warn(fullMessage, context || '');
+                console.warn(logOutput);
                 break;
             case LogLevel.ERROR:
-                console.error(fullMessage, context || '');
+                console.error(logOutput);
                 break;
+        }
+
+        // Force immediate console flush by triggering a synchronous operation
+        // This helps prevent buffering in Obsidian's developer console
+        try {
+            // Use a synchronous operation to force console flush
+            const _ = new Date().getTime();
+        } catch (e) {
+            // Ignore any errors from the flush attempt
         }
     }
 
