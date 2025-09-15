@@ -612,7 +612,8 @@ export class SyncEngine {
         const isGoogleDoc = remoteFile.mimeType === 'application/vnd.google-apps.document' ||
                            remoteFile.mimeType === 'application/vnd.google-apps.spreadsheet' ||
                            remoteFile.mimeType === 'application/vnd.google-apps.presentation' ||
-                           remoteFile.mimeType === 'application/vnd.google-apps.form';
+                           remoteFile.mimeType === 'application/vnd.google-apps.form' ||
+                           remoteFile.mimeType === 'application/vnd.google-apps.map';
 
         // Also check for files that might be Google Docs without proper mimeType
         const suspiciousFile = !remoteFile.mimeType && !localPath.includes('.') && remoteFile.id.length < 20;
@@ -692,8 +693,17 @@ export class SyncEngine {
                     await this.app.vault.modifyBinary(existing, arrayBuffer);
                     await this.indexManager.updateFileEntry(existing, remoteFile.id, undefined);
                 } else {
-                    this.logger.error(`File exists but couldn't retrieve it: ${localPath}`);
-                    throw error;
+                    // If file exists but can't be retrieved, try to delete and recreate
+                    this.logger.warn(`File exists but couldn't retrieve it, attempting to recreate: ${localPath}`);
+                    try {
+                        // Try to delete the existing file/path and recreate
+                        await this.app.vault.adapter.remove(localPath);
+                        const created = await this.app.vault.createBinary(localPath, arrayBuffer);
+                        await this.indexManager.updateFileEntry(created, remoteFile.id, undefined);
+                    } catch (recreateError) {
+                        this.logger.error(`Failed to recreate file: ${localPath}`, recreateError);
+                        throw recreateError;
+                    }
                 }
             } else {
                 throw error;

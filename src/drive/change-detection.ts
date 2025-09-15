@@ -154,18 +154,29 @@ export class DriveChangeDetection {
         let hasMorePages = true;
 
         while (hasMorePages) {
-            const response = await this.listChanges(currentPageToken, {
-                ...options,
-                pageSize: options.pageSize || 100
-            });
+            try {
+                const response = await this.listChanges(currentPageToken, {
+                    ...options,
+                    pageSize: options.pageSize || 100
+                });
 
-            allChanges.push(...response.changes);
+                allChanges.push(...response.changes);
 
-            if (response.nextPageToken) {
-                currentPageToken = response.nextPageToken;
-            } else {
-                hasMorePages = false;
-                currentPageToken = response.newStartPageToken;
+                if (response.nextPageToken) {
+                    currentPageToken = response.nextPageToken;
+                } else {
+                    hasMorePages = false;
+                    currentPageToken = response.newStartPageToken;
+                }
+            } catch (error) {
+                // If pageToken is invalid (400 error), reset change detection
+                if (error.message?.includes('400')) {
+                    console.warn('Invalid page token, resetting change detection:', error.message);
+                    const startToken = await this.getStartPageToken(options);
+                    await this.storePageToken(startToken);
+                    return { changes: [], newPageToken: startToken };
+                }
+                throw error;
             }
         }
 
