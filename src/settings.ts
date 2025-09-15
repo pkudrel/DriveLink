@@ -20,6 +20,8 @@ export interface DriveLinkSettings {
     debugLevel: LogLevel;
     lastSyncTime?: string; // ISO timestamp of last successful sync
     changeDetectionToken?: string; // Stored change detection token for Drive Changes API
+    changeDetectionFailureCount?: number; // Count of consecutive change detection failures
+    disableChangeDetection?: boolean; // Temporarily disable change detection if it keeps failing
 }
 
 /**

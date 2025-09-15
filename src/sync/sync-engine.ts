@@ -294,8 +294,33 @@ export class SyncEngine {
         let syncStrategy = 'change-detection';
         let wasBootstrapped = false;
 
-        try {
-            this.logger.info('Attempting robust change detection sync with proper error recovery');
+        // Check if change detection should be disabled due to repeated failures
+        const failureCount = this.settings.changeDetectionFailureCount || 0;
+        const isDisabled = this.settings.disableChangeDetection || false;
+
+        if (isDisabled || failureCount >= 3) {
+            this.logger.info(`Change detection disabled due to repeated failures (count: ${failureCount}), using timestamp sync`);
+
+            // Use timestamp-based sync directly
+            const canUseFastSync = Boolean(this.settings.lastSyncTime);
+            syncStrategy = canUseFastSync ? 'fast-timestamp' : 'full';
+
+            this.logger.info(`Fetching remote files from Drive folder (recursive, ${syncStrategy} sync)`, {
+                folderId: this.settings.driveFolderId,
+                lastSyncTime: this.settings.lastSyncTime,
+                strategy: syncStrategy,
+                reason: `Change detection disabled after ${failureCount} failures`
+            });
+
+            allFiles = await this.getRemoteFilesRecursive(
+                this.settings.driveFolderId,
+                '',
+                onProgress,
+                canUseFastSync
+            );
+        } else {
+            try {
+                this.logger.info('Attempting robust change detection sync with proper error recovery');
 
             const changeResult = await this.changeDetection.getAllChangesSinceLastCheck(
                 this.settings.driveFolderId
@@ -327,7 +352,28 @@ export class SyncEngine {
                 syncStrategy = 'change-detection-incremental';
             }
 
+            // Change detection succeeded, reset failure count
+            if (failureCount > 0) {
+                this.settings.changeDetectionFailureCount = 0;
+                this.settings.disableChangeDetection = false;
+                await (this.plugin as any).saveSettings();
+                this.logger.debug('Change detection succeeded, reset failure count');
+            }
+
         } catch (changeDetectionError) {
+            // Increment failure count and potentially disable change detection
+            const newFailureCount = failureCount + 1;
+            this.settings.changeDetectionFailureCount = newFailureCount;
+
+            if (newFailureCount >= 3) {
+                this.settings.disableChangeDetection = true;
+                this.logger.warn(`Change detection failed ${newFailureCount} times, disabling for future syncs`, changeDetectionError as Error);
+            } else {
+                this.logger.warn(`Change detection failed (${newFailureCount}/3), falling back to timestamp-based sync`, changeDetectionError as Error);
+            }
+
+            await (this.plugin as any).saveSettings();
+
             this.logger.warn('Change detection failed, falling back to timestamp-based sync', changeDetectionError as Error);
 
             // Fallback to timestamp-based sync
@@ -347,6 +393,7 @@ export class SyncEngine {
                 onProgress,
                 canUseFastSync
             );
+        }
         }
 
         // Log all remote files found with detailed filtering analysis
