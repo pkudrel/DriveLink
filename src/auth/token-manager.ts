@@ -213,10 +213,14 @@ export class TokenManager {
             throw new Error('No refresh token available. Please re-authorize.');
         }
 
+        // In SimpleToken mode, tokens should be refreshed by generating new ones with SimpleToken CLI
         if (!this.oauthManager) {
-            throw new Error('OAuth manager not initialized');
+            this.logger.warn('Token expired in SimpleToken mode - automatic refresh not supported');
+            await this.clearTokens();
+            throw new Error('Tokens have expired. Please generate fresh tokens using SimpleToken CLI and import them in the plugin settings.');
         }
 
+        // OAuth mode - use the OAuth manager
         try {
             const tokenResponse = await this.oauthManager.refreshAccessToken(this.tokens.refreshToken);
 
@@ -230,7 +234,7 @@ export class TokenManager {
             }
 
             await this.storeTokens(this.tokens);
-            console.log('Access token refreshed successfully');
+            this.logger.info('Access token refreshed successfully via OAuth');
         } catch (error) {
             // If refresh fails, clear tokens to force re-authorization
             await this.clearTokens();
