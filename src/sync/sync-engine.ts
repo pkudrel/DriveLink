@@ -292,7 +292,8 @@ export class SyncEngine {
         // TODO: Re-enable change detection once Google Drive token issue is resolved
         this.logger.info('Using timestamp-based sync (change detection temporarily disabled due to token issues)');
 
-        const canUseFastSync = Boolean(this.settings.lastSyncTime);
+        // Temporarily force full sync to debug missing files
+        const canUseFastSync = false; // Boolean(this.settings.lastSyncTime);
         const syncStrategy = canUseFastSync ? 'fast-timestamp' : 'full';
 
         this.logger.info(`Fetching remote files from Drive folder (recursive, ${syncStrategy} sync)`, {
