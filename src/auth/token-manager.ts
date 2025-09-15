@@ -213,11 +213,53 @@ export class TokenManager {
             throw new Error('No refresh token available. Please re-authorize.');
         }
 
-        // In SimpleToken mode, tokens should be refreshed by generating new ones with SimpleToken CLI
+        // In SimpleToken mode, attempt to refresh using the refresh token
         if (!this.oauthManager) {
-            this.logger.warn('Token expired in SimpleToken mode - automatic refresh not supported');
-            await this.clearTokens();
-            throw new Error('Tokens have expired. Please generate fresh tokens using SimpleToken CLI and import them in the plugin settings.');
+            try {
+                this.logger.info('Attempting to refresh token in SimpleToken mode');
+
+                // Use Google's public client ID for installed applications
+                // This is a well-known public client ID that Google allows for this purpose
+                const publicClientId = '407408718192.apps.googleusercontent.com';
+
+                const response = await fetch('https://oauth2.googleapis.com/token', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/x-www-form-urlencoded',
+                    },
+                    body: new URLSearchParams({
+                        grant_type: 'refresh_token',
+                        refresh_token: this.tokens.refreshToken,
+                        client_id: publicClientId,
+                    }),
+                });
+
+                if (!response.ok) {
+                    const errorData = await response.json().catch(() => ({ error: 'unknown_error' }));
+                    throw new Error(`Token refresh failed: ${errorData.error_description || errorData.error || response.statusText}`);
+                }
+
+                const tokenResponse = await response.json();
+
+                // Update stored tokens
+                this.tokens.accessToken = tokenResponse.access_token;
+                this.tokens.expiresAt = Date.now() + (tokenResponse.expires_in * 1000);
+
+                // Update refresh token if provided (Google doesn't always provide a new one)
+                if (tokenResponse.refresh_token) {
+                    this.tokens.refreshToken = tokenResponse.refresh_token;
+                }
+
+                await this.storeTokens(this.tokens);
+                this.logger.info('Access token refreshed successfully in SimpleToken mode');
+                return;
+
+            } catch (error) {
+                this.logger.error('Token refresh failed in SimpleToken mode', error as Error);
+                // If refresh fails, clear tokens and ask user to re-import
+                await this.clearTokens();
+                throw new Error(`Token refresh failed: ${error.message}. Please import fresh tokens from SimpleToken CLI.`);
+            }
         }
 
         // OAuth mode - use the OAuth manager

@@ -289,31 +289,64 @@ export class SyncEngine {
             onProgress('Fetching remote files...', 0, 0);
         }
 
-        // Use timestamp-based sync instead of problematic change detection
-        // TODO: Re-enable change detection once Google Drive token issue is resolved
-        this.logger.info('Using timestamp-based sync (change detection temporarily disabled due to token issues)');
+        // Try the new robust change detection first, fall back to timestamp sync if needed
+        let allFiles: DriveFile[] = [];
+        let syncStrategy = 'change-detection';
+        let wasBootstrapped = false;
 
-        // Temporarily force full sync to debug missing files
-        const canUseFastSync = false; // Boolean(this.settings.lastSyncTime);
-        const syncStrategy = canUseFastSync ? 'fast-timestamp' : 'full';
+        try {
+            this.logger.info('Attempting robust change detection sync with proper error recovery');
 
-        this.logger.info(`Fetching remote files from Drive folder (recursive, ${syncStrategy} sync)`, {
-            folderId: this.settings.driveFolderId,
-            lastSyncTime: this.settings.lastSyncTime,
-            strategy: syncStrategy,
-            reason: 'Change detection disabled due to invalid token loop'
-        });
+            const changeResult = await this.changeDetection.getAllChangesSinceLastCheck(
+                this.settings.driveFolderId
+            );
 
-        const allFiles = await this.getRemoteFilesRecursive(
-            this.settings.driveFolderId,
-            '',
-            onProgress,
-            canUseFastSync
-        );
+            wasBootstrapped = changeResult.wasBootstrapped;
+
+            if (changeResult.wasBootstrapped) {
+                // Token was bootstrapped fresh, no meaningful changes to process
+                this.logger.info('Change detection was bootstrapped fresh - establishing new baseline');
+                allFiles = []; // Empty changes, just establishing baseline
+                syncStrategy = 'change-detection-bootstrap';
+            } else if (changeResult.changes.length === 0) {
+                // No changes detected
+                this.logger.info('No changes detected via change detection');
+                allFiles = [];
+                syncStrategy = 'change-detection-no-changes';
+            } else {
+                // Process the detected changes
+                this.logger.info(`Found ${changeResult.changes.length} changes via change detection`);
+                allFiles = await this.getFilesFromChanges(changeResult.changes);
+                syncStrategy = 'change-detection-incremental';
+            }
+
+        } catch (changeDetectionError) {
+            this.logger.warn('Change detection failed, falling back to timestamp-based sync', changeDetectionError as Error);
+
+            // Fallback to timestamp-based sync
+            const canUseFastSync = Boolean(this.settings.lastSyncTime);
+            syncStrategy = canUseFastSync ? 'fast-timestamp' : 'full';
+
+            this.logger.info(`Fetching remote files from Drive folder (recursive, ${syncStrategy} sync)`, {
+                folderId: this.settings.driveFolderId,
+                lastSyncTime: this.settings.lastSyncTime,
+                strategy: syncStrategy,
+                fallbackReason: 'Change detection failed'
+            });
+
+            allFiles = await this.getRemoteFilesRecursive(
+                this.settings.driveFolderId,
+                '',
+                onProgress,
+                canUseFastSync
+            );
+        }
 
         // Log all remote files found with detailed filtering analysis
         this.logger.info('Remote files discovery complete', {
             totalFiles: allFiles.length,
+            strategy: syncStrategy,
+            wasBootstrapped: wasBootstrapped,
             fileDetails: allFiles.map(f => ({
                 name: f.name,
                 path: f.path || f.name,

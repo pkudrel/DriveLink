@@ -46,11 +46,14 @@ export interface ChangeDetectionOptions {
 }
 
 /**
- * Stored page token for change detection
+ * Stored page token for change detection with metadata
  */
 interface PageTokenData {
     token: string;
     timestamp: number;
+    isBootstrapped: boolean;
+    syncCount: number;
+    folderId?: string;
 }
 
 /**
@@ -142,23 +145,34 @@ export class DriveChangeDetection {
     }
 
     /**
-     * Get all changes since the last stored page token
+     * Get all changes since the last stored page token with proper error recovery
      */
     async getAllChangesSinceLastCheck(
+        folderId?: string,
         options: ChangeDetectionOptions = {}
-    ): Promise<{ changes: DriveChange[]; newPageToken: string }> {
-        const storedPageToken = await this.getStoredPageToken();
+    ): Promise<{ changes: DriveChange[]; newPageToken: string; wasBootstrapped: boolean }> {
+        const tokenData = await this.getStoredPageTokenData();
 
-        if (!storedPageToken) {
-            // No stored token, get current start token and return empty changes
-            const startToken = await this.getStartPageToken(options);
-            await this.storePageToken(startToken);
-            return { changes: [], newPageToken: startToken };
+        // If no token or token is too old, bootstrap fresh
+        if (!tokenData || !tokenData.isBootstrapped || this.isTokenStale(tokenData)) {
+            console.log('[ChangeDetection] No valid token found, bootstrapping fresh change detection');
+            const startToken = await this.bootstrapChangeDetection(folderId, options);
+            return { changes: [], newPageToken: startToken, wasBootstrapped: true };
+        }
+
+        // Validate token matches current folder (if provided)
+        if (folderId && tokenData.folderId && tokenData.folderId !== folderId) {
+            console.log(`[ChangeDetection] Folder changed (${tokenData.folderId} -> ${folderId}), bootstrapping fresh`);
+            const startToken = await this.bootstrapChangeDetection(folderId, options);
+            return { changes: [], newPageToken: startToken, wasBootstrapped: true };
         }
 
         const allChanges: DriveChange[] = [];
-        let currentPageToken = storedPageToken;
+        let currentPageToken = tokenData.token;
         let hasMorePages = true;
+        let pagesProcessed = 0;
+
+        console.log(`[ChangeDetection] Starting incremental sync from token: ${currentPageToken}`);
 
         while (hasMorePages) {
             try {
@@ -168,6 +182,9 @@ export class DriveChangeDetection {
                 });
 
                 allChanges.push(...response.changes);
+                pagesProcessed++;
+
+                console.log(`[ChangeDetection] Page ${pagesProcessed}: Found ${response.changes.length} changes`);
 
                 if (response.nextPageToken) {
                     currentPageToken = response.nextPageToken;
@@ -175,24 +192,35 @@ export class DriveChangeDetection {
                     hasMorePages = false;
                     currentPageToken = response.newStartPageToken;
                 }
+
+                // Safety check to prevent infinite loops
+                if (pagesProcessed > 100) {
+                    console.warn(`[ChangeDetection] Too many pages (${pagesProcessed}), stopping and bootstrapping fresh`);
+                    const startToken = await this.bootstrapChangeDetection(folderId, options);
+                    return { changes: [], newPageToken: startToken, wasBootstrapped: true };
+                }
+
             } catch (error) {
-                // If pageToken is invalid (400 error), reset change detection
+                // Handle 400 Invalid page token with fresh bootstrap
                 if (error.message?.includes('400')) {
-                    console.warn('Invalid page token, resetting change detection:', error.message);
-                    console.log(`[ChangeDetection] Getting fresh start token to replace invalid token: ${currentPageToken}`);
-                    const startToken = await this.getStartPageToken(options);
-                    console.log(`[ChangeDetection] Received fresh start token: ${startToken}`);
-                    await this.storePageToken(startToken);
-                    return { changes: [], newPageToken: startToken };
+                    console.log(`[ChangeDetection] Invalid page token detected (${currentPageToken}), bootstrapping fresh`);
+                    const startToken = await this.bootstrapChangeDetection(folderId, options);
+                    return { changes: [], newPageToken: startToken, wasBootstrapped: true };
                 }
                 throw error;
             }
         }
 
-        // Store the new page token for next time
-        await this.storePageToken(currentPageToken);
+        // Store the new page token with updated metadata
+        await this.storePageTokenWithMetadata(currentPageToken, {
+            isBootstrapped: true,
+            syncCount: tokenData.syncCount + 1,
+            folderId: folderId || tokenData.folderId
+        });
 
-        return { changes: allChanges, newPageToken: currentPageToken };
+        console.log(`[ChangeDetection] Incremental sync complete: ${allChanges.length} changes found across ${pagesProcessed} pages`);
+
+        return { changes: allChanges, newPageToken: currentPageToken, wasBootstrapped: false };
     }
 
     /**
@@ -256,12 +284,30 @@ export class DriveChangeDetection {
     }
 
     /**
+     * Bootstrap change detection with a fresh start page token
+     */
+    async bootstrapChangeDetection(folderId?: string, options: ChangeDetectionOptions = {}): Promise<string> {
+        console.log('[ChangeDetection] Bootstrapping change detection with fresh start page token');
+
+        // Get a fresh start page token from Google Drive
+        const startToken = await this.getStartPageToken(options);
+
+        // Store with bootstrap metadata
+        await this.storePageTokenWithMetadata(startToken, {
+            isBootstrapped: true,
+            syncCount: 0,
+            folderId
+        });
+
+        console.log(`[ChangeDetection] Change detection bootstrapped successfully with token: ${startToken}`);
+        return startToken;
+    }
+
+    /**
      * Initialize change detection for a new sync setup
      */
     async initializeChangeDetection(options: ChangeDetectionOptions = {}): Promise<string> {
-        const startToken = await this.getStartPageToken(options);
-        await this.storePageToken(startToken);
-        return startToken;
+        return await this.bootstrapChangeDetection(undefined, options);
     }
 
     /**
@@ -295,13 +341,17 @@ export class DriveChangeDetection {
     }
 
     /**
-     * Store page token for persistence across sessions
+     * Store page token with metadata for persistence across sessions
      */
-    private async storePageToken(token: string): Promise<void> {
+    private async storePageTokenWithMetadata(token: string, metadata: Partial<PageTokenData> = {}): Promise<void> {
         try {
             const tokenData: PageTokenData = {
                 token,
-                timestamp: Date.now()
+                timestamp: Date.now(),
+                isBootstrapped: metadata.isBootstrapped || false,
+                syncCount: metadata.syncCount || 0,
+                folderId: metadata.folderId,
+                ...metadata
             };
 
             let stored = false;
@@ -311,7 +361,12 @@ export class DriveChangeDetection {
                 this.plugin.settings.changeDetectionToken = JSON.stringify(tokenData);
                 await this.plugin.saveSettings();
                 stored = true;
-                console.log(`[ChangeDetection] Stored token in plugin settings: ${token}`);
+                console.log(`[ChangeDetection] Stored token with metadata:`, {
+                    token,
+                    isBootstrapped: tokenData.isBootstrapped,
+                    syncCount: tokenData.syncCount,
+                    folderId: tokenData.folderId
+                });
             } else if (typeof localStorage !== 'undefined') {
                 localStorage.setItem(this.pageTokenStorageKey, JSON.stringify(tokenData));
                 stored = true;
@@ -327,9 +382,16 @@ export class DriveChangeDetection {
     }
 
     /**
-     * Retrieve stored page token
+     * Store page token for persistence across sessions (legacy method)
      */
-    private async getStoredPageToken(): Promise<string | null> {
+    private async storePageToken(token: string): Promise<void> {
+        await this.storePageTokenWithMetadata(token);
+    }
+
+    /**
+     * Retrieve stored page token data with metadata
+     */
+    private async getStoredPageTokenData(): Promise<PageTokenData | null> {
         try {
             // Retrieve from plugin data or localStorage
             let tokenDataStr: string | null = null;
@@ -352,21 +414,42 @@ export class DriveChangeDetection {
             const tokenData: PageTokenData = JSON.parse(tokenDataStr);
             const tokenAge = Date.now() - tokenData.timestamp;
 
-            console.log(`[ChangeDetection] Token details: token=${tokenData.token}, age=${Math.round(tokenAge/1000/60)}min`);
+            console.log(`[ChangeDetection] Token details:`, {
+                token: tokenData.token,
+                ageMinutes: Math.round(tokenAge/1000/60),
+                isBootstrapped: tokenData.isBootstrapped,
+                syncCount: tokenData.syncCount,
+                folderId: tokenData.folderId
+            });
 
-            // Check if token is too old (older than 7 days)
-            const maxAge = 7 * 24 * 60 * 60 * 1000; // 7 days in milliseconds
-            if (tokenAge > maxAge) {
-                console.log(`[ChangeDetection] Token too old, clearing`);
-                await this.clearStoredPageToken();
-                return null;
-            }
-
-            return tokenData.token;
+            return tokenData;
         } catch (error) {
-            console.error('Failed to retrieve page token:', error);
+            console.error('Failed to retrieve page token data:', error);
             return null;
         }
+    }
+
+    /**
+     * Retrieve stored page token (legacy method)
+     */
+    private async getStoredPageToken(): Promise<string | null> {
+        const tokenData = await this.getStoredPageTokenData();
+        return tokenData?.token || null;
+    }
+
+    /**
+     * Check if a token is stale and should be refreshed
+     */
+    private isTokenStale(tokenData: PageTokenData): boolean {
+        const tokenAge = Date.now() - tokenData.timestamp;
+        const maxAge = 7 * 24 * 60 * 60 * 1000; // 7 days in milliseconds
+
+        if (tokenAge > maxAge) {
+            console.log(`[ChangeDetection] Token is stale (age: ${Math.round(tokenAge/1000/60/60)}h)`);
+            return true;
+        }
+
+        return false;
     }
 
     /**
