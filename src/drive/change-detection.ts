@@ -203,7 +203,18 @@ export class DriveChangeDetection {
             } catch (error) {
                 // Handle 400 Invalid page token with fresh bootstrap
                 if (error.message?.includes('400')) {
-                    console.log(`[ChangeDetection] Invalid page token detected (${currentPageToken}), bootstrapping fresh`);
+                    console.log(`[ChangeDetection] Invalid page token detected (${currentPageToken}), checking for infinite loop`);
+
+                    // Check if Google Drive might return the same invalid token again
+                    // This can happen due to Google Drive API sync issues
+                    const testToken = await this.getStartPageToken(options);
+
+                    if (testToken === currentPageToken) {
+                        console.warn(`[ChangeDetection] Google Drive returned same invalid token (${testToken}), disabling change detection`);
+                        throw new Error('Google Drive API returned same invalid token - change detection disabled for this session');
+                    }
+
+                    console.log(`[ChangeDetection] Got different token (${testToken}), bootstrapping fresh`);
                     const startToken = await this.bootstrapChangeDetection(folderId, options);
                     return { changes: [], newPageToken: startToken, wasBootstrapped: true };
                 }
