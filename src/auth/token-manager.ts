@@ -217,16 +217,18 @@ export class TokenManager {
             throw new Error('No refresh token available. Please re-authorize.');
         }
 
-        // In SimpleToken mode, ask user to refresh tokens manually for security
-        if (!this.oauthManager) {
-            this.logger.warn('Token expired in SimpleToken mode - manual refresh required');
-            await this.clearTokens();
-            throw new Error('Tokens have expired. Please generate fresh tokens using SimpleToken CLI and import them in the plugin settings.');
-        }
+        this.logger.info('Refreshing access token using stored refresh token');
 
-        // OAuth mode - use the OAuth manager
         try {
-            const tokenResponse = await this.oauthManager.refreshAccessToken(this.tokens.refreshToken);
+            let tokenResponse;
+
+            if (this.oauthManager) {
+                // Use OAuth manager if available (manual OAuth flow)
+                tokenResponse = await this.oauthManager.refreshAccessToken(this.tokens.refreshToken);
+            } else {
+                // Direct refresh using Google OAuth endpoint (SimpleToken flow)
+                tokenResponse = await this.refreshTokenDirect(this.tokens.refreshToken);
+            }
 
             // Update stored tokens
             this.tokens.accessToken = tokenResponse.access_token;
@@ -238,12 +240,41 @@ export class TokenManager {
             }
 
             await this.storeTokens(this.tokens);
-            this.logger.info('Access token refreshed successfully via OAuth');
+            this.logger.info('Access token refreshed successfully', {
+                method: this.oauthManager ? 'oauth-manager' : 'direct-refresh',
+                newExpiresAt: new Date(this.tokens.expiresAt).toISOString()
+            });
         } catch (error) {
+            this.logger.error('Token refresh failed', error as Error);
             // If refresh fails, clear tokens to force re-authorization
             await this.clearTokens();
             throw new Error(`Token refresh failed: ${error.message}`);
         }
+    }
+
+    /**
+     * Direct token refresh using Google OAuth endpoint
+     */
+    private async refreshTokenDirect(refreshToken: string): Promise<any> {
+        const response = await fetch('https://oauth2.googleapis.com/token', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/x-www-form-urlencoded',
+            },
+            body: new URLSearchParams({
+                grant_type: 'refresh_token',
+                refresh_token: refreshToken,
+                // Note: client_id and client_secret are not required for refresh_token grant
+                // when using tokens from SimpleToken CLI (public client flow)
+            })
+        });
+
+        if (!response.ok) {
+            const errorText = await response.text();
+            throw new Error(`HTTP ${response.status}: ${errorText}`);
+        }
+
+        return await response.json();
     }
 
     /**
