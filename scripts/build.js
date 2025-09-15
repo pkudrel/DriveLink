@@ -267,13 +267,22 @@ function buildPlugin(production = false) {
     try {
         exec(buildCmd);
 
-        // Copy styles.css from src to root after build
-        const srcStyles = path.join(__dirname, '..', 'src', 'styles.css');
-        const destStyles = path.join(__dirname, '..', 'styles.css');
+        // Copy additional files to dist directory after build
 
+        // Copy styles.css from src to dist
+        const srcStyles = path.join(__dirname, '..', 'src', 'styles.css');
+        const destStyles = path.join(__dirname, '..', 'dist', 'styles.css');
         if (fs.existsSync(srcStyles)) {
             fs.copyFileSync(srcStyles, destStyles);
-            logSuccess('Copied styles.css to root directory');
+            logSuccess('Copied styles.css to dist directory');
+        }
+
+        // Copy manifest.json to dist for distribution
+        const srcManifest = path.join(__dirname, '..', 'manifest.json');
+        const destManifest = path.join(__dirname, '..', 'dist', 'manifest.json');
+        if (fs.existsSync(srcManifest)) {
+            fs.copyFileSync(srcManifest, destManifest);
+            logSuccess('Copied manifest.json to dist directory');
         }
 
         logSuccess('Plugin built successfully');
@@ -304,11 +313,17 @@ function createBuildInfo(versionInfo) {
 function validateBuild() {
     logStep('6', 'Validating build output...');
 
-    const requiredFiles = ['manifest.json', 'main.js', 'styles.css'];
+    const requiredFiles = [
+        { file: 'manifest.json', location: 'dist' },
+        { file: 'main.js', location: 'dist' },
+        { file: 'styles.css', location: 'dist' }
+    ];
     const missingFiles = [];
 
-    for (const file of requiredFiles) {
-        const filePath = path.join(__dirname, '..', file);
+    for (const { file, location } of requiredFiles) {
+        const filePath = location === 'root'
+            ? path.join(__dirname, '..', file)
+            : path.join(__dirname, '..', 'dist', file);
         if (!fs.existsSync(filePath)) {
             missingFiles.push(file);
         }

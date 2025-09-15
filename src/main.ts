@@ -19,10 +19,8 @@ export default class DriveLinkPlugin extends Plugin {
 		this.driveClient = new DriveClient(this.tokenManager);
 		this.syncEngine = new SyncEngine(this.app, this.driveClient, this.settings, this);
 
-		// Initialize OAuth manager if Client ID is already configured
-		if (this.settings.clientId) {
-			this.tokenManager.initializeOAuth(this.settings.clientId, this.settings.redirectUri);
-		}
+		// Note: OAuth is handled entirely by SimpleToken CLI
+		// No need to initialize OAuth manager in SimpleToken-only mode
 
 		// Initialize sync engine (index, change detection)
 		await this.syncEngine.initialize();
@@ -31,11 +29,7 @@ export default class DriveLinkPlugin extends Plugin {
 		this.addSettingTab(new DriveLinkSettingTab(this.app, this));
 
 		// Add commands
-		this.addCommand({
-			id: 'connect-google-drive',
-			name: 'Connect to Google Drive',
-			callback: () => this.connectToDrive()
-		});
+		// Note: Connection is handled via SimpleToken CLI, no manual connect command needed
 
 		this.addCommand({
 			id: 'setup-drive-folder',
@@ -93,19 +87,16 @@ export default class DriveLinkPlugin extends Plugin {
 		await this.saveData(this.settings);
 	}
 
+	// Note: Connection is now handled entirely by SimpleToken CLI
+	// This method is kept for compatibility but does nothing in SimpleToken-only mode
 	async connectToDrive() {
-		try {
-			await this.tokenManager.authorize();
-			console.log('Connected to Google Drive successfully');
-		} catch (error) {
-			console.error('Failed to connect to Google Drive:', error);
-		}
+		console.log('Drive connection is managed by SimpleToken CLI');
 	}
 
 	async setupDriveFolder() {
 		try {
 			if (!await this.tokenManager.hasValidToken()) {
-				await this.connectToDrive();
+				throw new Error('No valid tokens found. Please set up SimpleToken CLI first.');
 			}
 
 			const folderId = await this.driveClient.createOrFindFolder('ObsidianVault');

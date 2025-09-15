@@ -4,9 +4,8 @@ npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
 
-# Build outputs (root directory only)
-/main.js
-/styles.css
+# Build outputs
+dist/
 *.tgz
 /build-info.json
 /versions.json

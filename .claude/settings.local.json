@@ -27,7 +27,8 @@
       "Bash(npm run simple-token -- --verify)",
       "Bash(cat:*)",
       "Bash(find:*)",
-      "Bash(npx tsc:*)"
+      "Bash(npx tsc:*)",
+      "Bash(grep:*)"
     ],
     "deny": [],
     "ask": []

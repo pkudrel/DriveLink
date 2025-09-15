@@ -92,30 +92,6 @@ export class TokenManager {
         }
     }
 
-    /**
-     * Initialize with SimpleToken CLI integration (auto-detect tokens)
-     */
-    async initializeWithSimpleToken(): Promise<boolean> {
-        try {
-            // Try to load tokens from SimpleToken CLI storage
-            const simpleTokenData = await SimpleTokenBridge.getTokenDataFromSimpleToken();
-            if (simpleTokenData) {
-                this.tokens = simpleTokenData;
-                this.useSimpleToken = true;
-
-                // Store in plugin data as fallback
-                await this.storeTokens(simpleTokenData);
-
-                console.log('TokenManager: Initialized with SimpleToken CLI tokens');
-                return true;
-            }
-
-            return false;
-        } catch (error) {
-            console.warn('TokenManager: Failed to initialize with SimpleToken:', error.message);
-            return false;
-        }
-    }
 
     /**
      * Import tokens from SimpleToken CLI output (copy-paste scenario)
@@ -157,12 +133,9 @@ export class TokenManager {
      * Get a valid access token, refreshing if necessary
      */
     async getValidAccessToken(): Promise<string> {
-        // First try to load tokens from SimpleToken CLI if not already loaded
+        // Load tokens from storage if not already loaded
         if (!this.tokens) {
-            const simpleTokenInitialized = await this.initializeWithSimpleToken();
-            if (!simpleTokenInitialized) {
-                await this.loadTokens();
-            }
+            await this.loadTokens();
         }
 
         if (!this.tokens) {
@@ -274,54 +247,24 @@ export class TokenManager {
         connected: boolean;
         expiresAt?: number;
         source: 'manual' | 'simple_token' | 'none';
-        simpleTokenAvailable: boolean;
     }> {
-        // Check SimpleToken availability
-        const simpleTokenStatus = await SimpleTokenBridge.getIntegrationStatus();
-
-        // Try SimpleToken first, then fallback to stored tokens
+        // Load tokens from storage if not already loaded
         if (!this.tokens) {
-            const simpleTokenInitialized = await this.initializeWithSimpleToken();
-            if (!simpleTokenInitialized) {
-                await this.loadTokens();
-            }
+            await this.loadTokens();
         }
 
         if (!this.tokens) {
             return {
                 connected: false,
-                source: 'none',
-                simpleTokenAvailable: simpleTokenStatus.available
+                source: 'none'
             };
         }
 
         return {
             connected: true,
             expiresAt: this.tokens.expiresAt,
-            source: this.useSimpleToken ? 'simple_token' : 'manual',
-            simpleTokenAvailable: simpleTokenStatus.available
+            source: this.useSimpleToken ? 'simple_token' : 'manual'
         };
-    }
-
-    /**
-     * Get SimpleToken integration status for UI display
-     */
-    async getSimpleTokenStatus(): Promise<{
-        available: boolean;
-        hasCredentials: boolean;
-        hasTokens: boolean;
-        tokensValid: boolean;
-        storageLocation: string;
-    }> {
-        return await SimpleTokenBridge.getIntegrationStatus();
-    }
-
-    /**
-     * Switch to manual OAuth mode (disable SimpleToken)
-     */
-    switchToManualMode(): void {
-        this.useSimpleToken = false;
-        console.log('TokenManager: Switched to manual OAuth mode');
     }
 
     /**
