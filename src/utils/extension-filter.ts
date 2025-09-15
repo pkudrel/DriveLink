@@ -13,7 +13,8 @@ export function shouldSyncFile(
     allowedFileExtensions: string[],
     ignorePatterns: string[] = [],
     debug: boolean = false,
-    allowFolders: boolean = true
+    allowFolders: boolean = true,
+    mimeType?: string
 ): boolean {
     const fileExtension = getFileExtension(filePath);
     const isFolder = fileExtension === ''; // Files without extensions are typically folders
@@ -22,10 +23,26 @@ export function shouldSyncFile(
         console.log(`[FileFilter] Checking file: ${filePath}`);
         console.log(`[FileFilter] - Extension: ${fileExtension}`);
         console.log(`[FileFilter] - Is folder: ${isFolder}`);
+        console.log(`[FileFilter] - MimeType: ${mimeType || 'unknown'}`);
         console.log(`[FileFilter] - Extension filtering enabled: ${enableExtensionFiltering}`);
         console.log(`[FileFilter] - Allowed extensions: [${allowedFileExtensions.join(', ')}]`);
         console.log(`[FileFilter] - Allow folders: ${allowFolders}`);
         console.log(`[FileFilter] - Ignore patterns: [${ignorePatterns.join(', ')}]`);
+    }
+
+    // Check if this is a Google Workspace document that should be ignored
+    if (mimeType) {
+        const isGoogleDoc = mimeType === 'application/vnd.google-apps.document' ||
+                           mimeType === 'application/vnd.google-apps.spreadsheet' ||
+                           mimeType === 'application/vnd.google-apps.presentation' ||
+                           mimeType === 'application/vnd.google-apps.form';
+
+        if (isGoogleDoc) {
+            if (debug) {
+                console.log(`[FileFilter] - REJECTED: Google Workspace document (${mimeType})`);
+            }
+            return false;
+        }
     }
 
     // First check if file is ignored by patterns

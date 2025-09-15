@@ -14,6 +14,7 @@ export interface DriveLinkSettings {
     allowedFileExtensions: string[];
     enableExtensionFiltering: boolean;
     allowFolders: boolean;
+    syncType: 'one-way' | 'two-way';
     debugLevel: LogLevel;
 }
 
@@ -35,6 +36,7 @@ export const DEFAULT_SETTINGS: DriveLinkSettings = {
     allowedFileExtensions: ['md', 'pdf'],
     enableExtensionFiltering: false,
     allowFolders: true,
+    syncType: 'two-way',
     debugLevel: LogLevel.INFO
 };
 
@@ -262,6 +264,19 @@ export class DriveLinkSettingTab extends PluginSettingTab {
                 .setValue(this.plugin.settings.syncOnFileChange)
                 .onChange(async (value) => {
                     this.plugin.settings.syncOnFileChange = value;
+                    await this.plugin.saveSettings();
+                }));
+
+        // Sync type
+        new Setting(containerEl)
+            .setName('Sync type')
+            .setDesc('Choose between one-way (fetch only) or two-way (bidirectional) synchronization')
+            .addDropdown(dropdown => dropdown
+                .addOption('two-way', 'Two-way (regular)')
+                .addOption('one-way', 'One-way (fetch)')
+                .setValue(this.plugin.settings.syncType)
+                .onChange(async (value: 'one-way' | 'two-way') => {
+                    this.plugin.settings.syncType = value;
                     await this.plugin.saveSettings();
                 }));
 

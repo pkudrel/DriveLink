@@ -159,13 +159,22 @@ export class SyncEngine {
                 conflicts: comparison.conflicts.length
             });
 
-            // Calculate total operations
-            const totalOps = comparison.localChanges.length +
-                            comparison.remoteChanges.length +
-                            comparison.newLocal.length +
-                            comparison.newRemote.length +
-                            comparison.deletedLocal.length +
-                            comparison.deletedRemote.length;
+            // Calculate total operations based on sync mode
+            let totalOps;
+            if (this.settings.syncType === 'one-way') {
+                // In one-way mode, only count downloads (no uploads or local deletions)
+                totalOps = comparison.remoteChanges.length +
+                          comparison.newRemote.length;
+                this.logger.info('One-way sync: Operation count excludes uploads and local deletions');
+            } else {
+                // Full bidirectional sync - count all operations
+                totalOps = comparison.localChanges.length +
+                          comparison.remoteChanges.length +
+                          comparison.newLocal.length +
+                          comparison.newRemote.length +
+                          comparison.deletedLocal.length +
+                          comparison.deletedRemote.length;
+            }
 
             if (totalOps === 0) {
                 this.logger.info('No changes detected - sync complete');
@@ -182,19 +191,32 @@ export class SyncEngine {
                 };
             }
 
-            this.logger.info(`Starting sync of ${totalOps} operations`);
+            this.logger.info(`Starting sync of ${totalOps} operations`, {
+                syncType: this.settings.syncType
+            });
 
-            // Step 3: Handle conflicts first
-            const conflicts = await this.resolveConflicts(comparison, options, stats);
+            let conflicts: string[] = [];
 
-            // Step 4: Upload new and changed local files
-            await this.uploadLocalChanges(comparison, options, stats);
+            if (this.settings.syncType === 'one-way') {
+                this.logger.info('One-way sync mode: Only downloading files from Drive');
 
-            // Step 5: Download new and changed remote files
-            await this.downloadRemoteChanges(comparison, options, stats, remoteFiles);
+                // In one-way mode, only download files from remote
+                await this.downloadRemoteChanges(comparison, options, stats, remoteFiles);
+            } else {
+                // Full bidirectional sync
 
-            // Step 6: Handle deletions
-            await this.handleDeletions(comparison, options, stats);
+                // Step 3: Handle conflicts first
+                conflicts = await this.resolveConflicts(comparison, options, stats);
+
+                // Step 4: Upload new and changed local files
+                await this.uploadLocalChanges(comparison, options, stats);
+
+                // Step 5: Download new and changed remote files
+                await this.downloadRemoteChanges(comparison, options, stats, remoteFiles);
+
+                // Step 6: Handle deletions
+                await this.handleDeletions(comparison, options, stats);
+            }
 
             // Step 7: Update change detection token
             if (!options.dryRun) {
@@ -284,7 +306,8 @@ export class SyncEngine {
                 this.settings.allowedFileExtensions,
                 this.settings.ignoreGlobs,
                 true,
-                this.settings.allowFolders
+                this.settings.allowFolders,
+                file.mimeType
             );
         });
 
@@ -419,13 +442,15 @@ export class SyncEngine {
         // Include new remote files (filter by extensions)
         console.log(`\n[SYNC DEBUG] Filtering new remote files for download:`);
         for (const remoteFile of comparison.newRemote) {
+            const filePath = remoteFile.path || remoteFile.name;
             if (shouldSyncFile(
-                remoteFile.name,
+                filePath,
                 this.settings.enableExtensionFiltering,
                 this.settings.allowedFileExtensions,
                 this.settings.ignoreGlobs,
                 true,
-                this.settings.allowFolders
+                this.settings.allowFolders,
+                remoteFile.mimeType
             )) {
                 filesToDownload.push(remoteFile);
             }
@@ -565,6 +590,20 @@ export class SyncEngine {
         let localPath = this.indexManager.getPathByDriveId(remoteFile.id);
         if (!localPath) {
             localPath = remoteFile.path || remoteFile.name;
+        }
+
+        // Check if this is a Google Workspace document that should be ignored
+        const isGoogleDoc = remoteFile.mimeType === 'application/vnd.google-apps.document' ||
+                           remoteFile.mimeType === 'application/vnd.google-apps.spreadsheet' ||
+                           remoteFile.mimeType === 'application/vnd.google-apps.presentation' ||
+                           remoteFile.mimeType === 'application/vnd.google-apps.form';
+
+        if (isGoogleDoc) {
+            this.logger.debug(`Ignoring Google Workspace document: ${localPath}`, {
+                driveId: remoteFile.id,
+                mimeType: remoteFile.mimeType
+            });
+            return; // Skip Google Docs/Sheets/Slides/Forms
         }
 
         // Check if this is a folder (Google Drive folders have specific mimeType)
