@@ -220,14 +220,15 @@ export class SyncEngine {
                 await this.handleDeletions(comparison, options, stats);
             }
 
-            // Step 7: Update change detection token
-            if (!options.dryRun) {
-                try {
-                    await this.changeDetection.getAllChangesSinceLastCheck();
-                } catch (error) {
-                    console.warn('Could not update change detection token:', error);
-                }
-            }
+            // Step 7: Update change detection token (disabled while using timestamp sync)
+            // TODO: Re-enable when change detection is working properly
+            // if (!options.dryRun) {
+            //     try {
+            //         await this.changeDetection.getAllChangesSinceLastCheck();
+            //     } catch (error) {
+            //         console.warn('Could not update change detection token:', error);
+            //     }
+            // }
 
             stats.endTime = Date.now();
             stats.duration = stats.endTime - stats.startTime;
