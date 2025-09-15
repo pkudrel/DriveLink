@@ -15,6 +15,8 @@ export interface DriveLinkSettings {
     enableExtensionFiltering: boolean;
     allowFolders: boolean;
     syncType: 'one-way' | 'two-way';
+    concurrentDownloads: number;
+    concurrentUploads: number;
     debugLevel: LogLevel;
 }
 
@@ -37,6 +39,8 @@ export const DEFAULT_SETTINGS: DriveLinkSettings = {
     enableExtensionFiltering: false,
     allowFolders: true,
     syncType: 'two-way',
+    concurrentDownloads: 5,
+    concurrentUploads: 3,
     debugLevel: LogLevel.INFO
 };
 
@@ -329,6 +333,31 @@ export class DriveLinkSettingTab extends PluginSettingTab {
                     await this.plugin.saveSettings();
                     // Update logger immediately
                     Logger.setLevel(newLevel);
+                }));
+
+        // Performance settings
+        new Setting(containerEl)
+            .setName('Concurrent downloads')
+            .setDesc('Number of files to download simultaneously. Higher values = faster sync but more memory usage.')
+            .addSlider(slider => slider
+                .setLimits(1, 10, 1)
+                .setValue(this.plugin.settings.concurrentDownloads)
+                .setDynamicTooltip()
+                .onChange(async (value) => {
+                    this.plugin.settings.concurrentDownloads = value;
+                    await this.plugin.saveSettings();
+                }));
+
+        new Setting(containerEl)
+            .setName('Concurrent uploads')
+            .setDesc('Number of files to upload simultaneously. Lower values recommended to avoid rate limits.')
+            .addSlider(slider => slider
+                .setLimits(1, 5, 1)
+                .setValue(this.plugin.settings.concurrentUploads)
+                .setDynamicTooltip()
+                .onChange(async (value) => {
+                    this.plugin.settings.concurrentUploads = value;
+                    await this.plugin.saveSettings();
                 }));
 
         // File extension filtering

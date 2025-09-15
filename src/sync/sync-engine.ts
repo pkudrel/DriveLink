@@ -409,21 +409,29 @@ export class SyncEngine {
     ): Promise<void> {
         const filesToUpload = [...comparison.newLocal, ...comparison.localChanges];
 
-        for (let i = 0; i < filesToUpload.length; i++) {
-            const filePath = filesToUpload[i];
+        // Upload files in parallel batches for better performance
+        const batchSize = this.settings.concurrentUploads;
+        for (let i = 0; i < filesToUpload.length; i += batchSize) {
+            const batch = filesToUpload.slice(i, i + batchSize);
 
-            try {
-                if (options.onProgress) {
-                    options.onProgress('Uploading files', i, filesToUpload.length, filePath);
-                }
+            if (options.onProgress) {
+                options.onProgress('Uploading files', i, filesToUpload.length, `Batch ${Math.floor(i/batchSize) + 1}`);
+            }
 
-                if (!options.dryRun) {
-                    await this.uploadFile(filePath);
-                    stats.filesUploaded++;
-                }
-            } catch (error) {
-                console.error(`Failed to upload ${filePath}:`, error);
-                stats.errors++;
+            if (!options.dryRun) {
+                // Process batch in parallel
+                const uploadPromises = batch.map(async (filePath) => {
+                    try {
+                        await this.uploadFile(filePath);
+                        stats.filesUploaded++;
+                        this.logger.debug(`Uploaded: ${filePath}`);
+                    } catch (error) {
+                        console.error(`Failed to upload ${filePath}:`, error);
+                        stats.errors++;
+                    }
+                });
+
+                await Promise.all(uploadPromises);
             }
         }
     }
@@ -472,21 +480,29 @@ export class SyncEngine {
             if (rf) filesToDownload.push(rf);
         }
 
-        for (let i = 0; i < filesToDownload.length; i++) {
-            const remoteFile = filesToDownload[i];
+        // Download files in parallel batches for better performance
+        const batchSize = this.settings.concurrentDownloads;
+        for (let i = 0; i < filesToDownload.length; i += batchSize) {
+            const batch = filesToDownload.slice(i, i + batchSize);
 
-            try {
-                if (options.onProgress) {
-                    options.onProgress('Downloading files', i, filesToDownload.length, remoteFile.name);
-                }
+            if (options.onProgress) {
+                options.onProgress('Downloading files', i, filesToDownload.length, `Batch ${Math.floor(i/batchSize) + 1}`);
+            }
 
-                if (!options.dryRun) {
-                    await this.downloadFile(remoteFile);
-                    stats.filesDownloaded++;
-                }
-            } catch (error) {
-                console.error(`Failed to download ${remoteFile.name}:`, error);
-                stats.errors++;
+            if (!options.dryRun) {
+                // Process batch in parallel
+                const downloadPromises = batch.map(async (remoteFile) => {
+                    try {
+                        await this.downloadFile(remoteFile);
+                        stats.filesDownloaded++;
+                        this.logger.debug(`Downloaded: ${remoteFile.path || remoteFile.name}`);
+                    } catch (error) {
+                        console.error(`Failed to download ${remoteFile.name}:`, error);
+                        stats.errors++;
+                    }
+                });
+
+                await Promise.all(downloadPromises);
             }
         }
     }
