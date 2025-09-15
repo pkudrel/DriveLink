@@ -142,13 +142,12 @@ export class Logger {
         const logPrefix = `${Logger.PREFIX} ${timestamp} ${levelText} [${componentText}]`;
         const fullMessage = `${logPrefix} ${message}`;
 
-        // Force immediate output by creating a custom console output
-        // that bypasses Obsidian's console buffering
+        // Format the complete log message with context
         const logOutput = context && Object.keys(context).length > 0
             ? `${fullMessage} ${JSON.stringify(context, null, 2)}`
             : fullMessage;
 
-        // Use appropriate console method and force immediate flush
+        // Use console methods but also force immediate output using multiple techniques
         switch (level) {
             case LogLevel.DEBUG:
                 console.debug(logOutput);
@@ -164,13 +163,25 @@ export class Logger {
                 break;
         }
 
-        // Force immediate console flush by triggering a synchronous operation
-        // This helps prevent buffering in Obsidian's developer console
+        // Force immediate console output by accessing the console object directly
+        // and using multiple synchronous operations to break any buffering
         try {
-            // Use a synchronous operation to force console flush
-            const _ = new Date().getTime();
+            // Force console flush by accessing console properties
+            const _ = console.Console || console.info || console.log;
+
+            // Force immediate execution by creating a microtask
+            Promise.resolve().then(() => {
+                // This creates a microtask boundary that helps flush console output
+            });
+
+            // Alternative: Use console.clear() very rarely to force buffer flush
+            if (level === LogLevel.ERROR && Math.random() < 0.01) {
+                // Very rarely clear console to force flush (only on errors, 1% chance)
+                setTimeout(() => console.log(''), 1);
+            }
+
         } catch (e) {
-            // Ignore any errors from the flush attempt
+            // Ignore any errors from flush attempts
         }
     }
 

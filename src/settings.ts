@@ -18,6 +18,7 @@ export interface DriveLinkSettings {
     concurrentDownloads: number;
     concurrentUploads: number;
     debugLevel: LogLevel;
+    lastSyncTime?: string; // ISO timestamp of last successful sync
 }
 
 /**

@@ -62,6 +62,7 @@ export class SyncEngine {
     private indexManager: IndexManager;
     private conflictResolver: ConflictResolver;
     private settings: DriveLinkSettings;
+    private plugin: Plugin;
     private isSyncing = false;
     private logger = Logger.createComponentLogger('SyncEngine');
 
@@ -74,6 +75,7 @@ export class SyncEngine {
         this.app = app;
         this.driveClient = driveClient;
         this.settings = settings;
+        this.plugin = plugin;
 
         // Initialize components
         this.fileOperations = new DriveFileOperations(driveClient['tokenManager']);
@@ -230,6 +232,19 @@ export class SyncEngine {
             stats.endTime = Date.now();
             stats.duration = stats.endTime - stats.startTime;
 
+            // Update last sync time for successful syncs
+            if (stats.errors === 0) {
+                this.settings.lastSyncTime = new Date().toISOString();
+                try {
+                    await (this.plugin as any).saveSettings();
+                    this.logger.debug('Updated last sync time', {
+                        lastSyncTime: this.settings.lastSyncTime
+                    });
+                } catch (error) {
+                    this.logger.warn('Failed to save last sync time', error as Error);
+                }
+            }
+
             if (options.onProgress) {
                 options.onProgress('Sync completed', totalOps, totalOps);
             }
@@ -273,11 +288,49 @@ export class SyncEngine {
             onProgress('Fetching remote files...', 0, 0);
         }
 
-        this.logger.info('Fetching remote files from Drive folder (recursive)', {
-            folderId: this.settings.driveFolderId
-        });
+        // Try change detection first, fall back to timestamp-based sync if it fails
+        let allFiles: DriveFile[] = [];
+        let syncStrategy = 'change-detection';
 
-        const allFiles = await this.getRemoteFilesRecursive(this.settings.driveFolderId, '', onProgress);
+        try {
+            // Attempt to use change detection for fastest sync
+            const hasChangeToken = await this.changeDetection.getChangeDetectionStats();
+            if (hasChangeToken.hasStoredToken) {
+                this.logger.info('Attempting change detection sync');
+                const changes = await this.changeDetection.getAllChangesSinceLastCheck();
+
+                if (changes.changes.length === 0) {
+                    this.logger.info('No changes detected via change detection');
+                    allFiles = []; // No changes to process
+                } else {
+                    this.logger.info(`Found ${changes.changes.length} changes via change detection`);
+                    // Convert changes to DriveFile format and get full file data
+                    allFiles = await this.getFilesFromChanges(changes.changes);
+                }
+            } else {
+                throw new Error('No change detection token available');
+            }
+        } catch (changeDetectionError) {
+            this.logger.warn('Change detection failed, falling back to timestamp-based sync', changeDetectionError as Error);
+
+            // Fallback to timestamp-based sync
+            const canUseFastSync = Boolean(this.settings.lastSyncTime);
+            syncStrategy = canUseFastSync ? 'fast-timestamp' : 'full';
+
+            this.logger.info(`Fetching remote files from Drive folder (recursive, ${syncStrategy} sync)`, {
+                folderId: this.settings.driveFolderId,
+                lastSyncTime: this.settings.lastSyncTime,
+                strategy: syncStrategy,
+                fallbackReason: 'Change detection failed'
+            });
+
+            allFiles = await this.getRemoteFilesRecursive(
+                this.settings.driveFolderId,
+                '',
+                onProgress,
+                canUseFastSync
+            );
+        }
 
         // Log all remote files found with detailed filtering analysis
         this.logger.info('Remote files discovery complete', {
@@ -320,13 +373,28 @@ export class SyncEngine {
     private async getRemoteFilesRecursive(
         folderId: string,
         parentPath: string = '',
-        onProgress?: SyncProgressCallback
+        onProgress?: SyncProgressCallback,
+        fastSync: boolean = false
     ): Promise<DriveFile[]> {
         const allFiles: DriveFile[] = [];
         let pageToken: string | undefined;
 
+        // For fast sync, use recent-first ordering and optional timestamp filtering
+        const orderBy = fastSync ? 'modifiedTime desc' : undefined;
+        const modifiedSince = fastSync && this.settings.lastSyncTime ? this.settings.lastSyncTime : undefined;
+
+        if (fastSync && modifiedSince) {
+            this.logger.info(`Fast sync: only fetching files modified since ${modifiedSince}`);
+        }
+
         do {
-            const response = await this.driveClient.listFiles(folderId, pageToken, 100);
+            const response = await this.driveClient.listFiles(
+                folderId,
+                pageToken,
+                100,
+                orderBy,
+                modifiedSince
+            );
 
             for (const file of response.files) {
                 // Calculate the full path for this file
@@ -346,7 +414,7 @@ export class SyncEngine {
                 // If this is a folder, recursively get its contents
                 if (file.mimeType === 'application/vnd.google-apps.folder') {
                     this.logger.debug(`Scanning folder: ${filePath}`);
-                    const subFiles = await this.getRemoteFilesRecursive(file.id, filePath, onProgress);
+                    const subFiles = await this.getRemoteFilesRecursive(file.id, filePath, onProgress, fastSync);
                     allFiles.push(...subFiles);
                 }
             }
@@ -359,6 +427,35 @@ export class SyncEngine {
         } while (pageToken);
 
         return allFiles;
+    }
+
+    /**
+     * Convert change detection results to DriveFile format
+     */
+    private async getFilesFromChanges(changes: any[]): Promise<DriveFile[]> {
+        const files: DriveFile[] = [];
+
+        for (const change of changes) {
+            if (change.removed) {
+                // Handle removed files separately - you might want to track these for deletion
+                this.logger.debug('File was removed', { fileId: change.fileId });
+                continue;
+            }
+
+            if (change.file) {
+                // Add path information if needed (this might require additional logic to determine full path)
+                const fileWithPath = { ...change.file, path: change.file.name };
+                files.push(fileWithPath);
+
+                this.logger.debug('Found changed file', {
+                    name: change.file.name,
+                    fileId: change.file.id,
+                    mimeType: change.file.mimeType
+                });
+            }
+        }
+
+        return files;
     }
 
     /**
@@ -633,6 +730,16 @@ export class SyncEngine {
                         (!remoteFile.mimeType && !localPath.includes('.'));
 
         if (isFolder) {
+            // Skip folders that start with "." (like .git, .obsidian, .vscode, etc.)
+            const folderName = localPath.split('/').pop() || '';
+            if (folderName.startsWith('.')) {
+                this.logger.debug(`Ignoring dot folder: ${localPath}`, {
+                    driveId: remoteFile.id,
+                    reason: 'Folder name starts with dot'
+                });
+                return; // Skip dot folders
+            }
+
             this.logger.debug(`Creating folder: ${localPath}`, {
                 driveId: remoteFile.id,
                 mimeType: remoteFile.mimeType
@@ -663,6 +770,17 @@ export class SyncEngine {
         }
 
         // Handle regular files
+        // Skip files that are inside folders starting with "."
+        const pathParts = localPath.split('/');
+        const hasDotFolder = pathParts.some(part => part.startsWith('.') && part !== '.');
+        if (hasDotFolder) {
+            this.logger.debug(`Ignoring file in dot folder: ${localPath}`, {
+                driveId: remoteFile.id,
+                reason: 'File is inside a folder that starts with dot'
+            });
+            return; // Skip files in dot folders
+        }
+
         const content = await this.fileOperations.downloadFile(remoteFile.id);
 
         // Ensure parent directories exist

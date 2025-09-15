@@ -125,22 +125,45 @@ export class DriveClient {
     }
 
     /**
-     * List files in a specific folder
+     * List files in a specific folder with optional filtering and ordering
      */
     async listFiles(
         folderId: string,
         pageToken?: string,
-        pageSize: number = 100
+        pageSize: number = 100,
+        orderBy?: string,
+        modifiedSince?: string
     ): Promise<DriveListResponse> {
+        // Build the query string
+        let query = `'${folderId}' in parents and trashed=false`;
+
+        // Add timestamp filter if provided
+        if (modifiedSince) {
+            query += ` and modifiedTime > '${modifiedSince}'`;
+        }
+
         const params = new URLSearchParams({
-            q: `'${folderId}' in parents and trashed=false`,
+            q: query,
             fields: 'files(id,name,mimeType,size,modifiedTime,parents,md5Checksum),nextPageToken,incompleteSearch',
             pageSize: pageSize.toString()
         });
 
+        // Add ordering if provided
+        if (orderBy) {
+            params.append('orderBy', orderBy);
+        }
+
         if (pageToken) {
             params.append('pageToken', pageToken);
         }
+
+        this.logger.debug(`Listing files with enhanced filtering`, {
+            folderId,
+            query,
+            orderBy,
+            modifiedSince,
+            pageSize
+        });
 
         const response = await this.makeRequest(`/files?${params.toString()}`);
         return await response.json();
