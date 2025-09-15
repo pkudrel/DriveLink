@@ -1,6 +1,7 @@
 import { Plugin } from 'obsidian';
 import { OAuthManager } from './oauth';
 import { SimpleTokenBridge } from './simple-token-bridge';
+import { Logger } from '../utils/logger';
 
 /**
  * Stored token data
@@ -27,6 +28,7 @@ export class TokenManager {
     private oauthManager: OAuthManager | null = null;
     private tokens: TokenData | null = null;
     private useSimpleToken: boolean = false;
+    private logger = Logger.createComponentLogger('TokenManager');
 
     constructor(plugin: Plugin) {
         this.plugin = plugin;
@@ -99,19 +101,37 @@ export class TokenManager {
     async importSimpleTokenData(tokenString: string): Promise<boolean> {
         try {
             const tokenData = JSON.parse(tokenString);
+            this.logger.debug('Importing SimpleToken data', {
+                hasAccessToken: !!tokenData.access_token,
+                hasRefreshToken: !!tokenData.refresh_token,
+                expiresIn: tokenData.expires_in,
+                tokenType: tokenData.token_type,
+                scope: tokenData.scope
+            });
 
             // Validate token structure
             if (!tokenData.access_token) {
+                this.logger.error('Invalid token data: missing access_token');
                 throw new Error('Invalid token data: missing access_token');
             }
+
+            const now = Date.now();
+            const expiresAt = tokenData.expires_in ?
+                now + (tokenData.expires_in * 1000) :
+                now + (60 * 60 * 1000);
+
+            this.logger.debug('Token expiry calculation', {
+                expiresIn: tokenData.expires_in,
+                currentTime: new Date(now).toISOString(),
+                expiresAt: new Date(expiresAt).toISOString(),
+                validFor: Math.floor((expiresAt - now) / 1000) + ' seconds'
+            });
 
             // Convert to internal format
             const internalTokenData: TokenData = {
                 accessToken: tokenData.access_token,
                 refreshToken: tokenData.refresh_token,
-                expiresAt: tokenData.expires_in ?
-                    Date.now() + (tokenData.expires_in * 1000) :
-                    Date.now() + (60 * 60 * 1000), // Default 1 hour
+                expiresAt: expiresAt,
                 tokenType: tokenData.token_type || 'Bearer',
                 scope: tokenData.scope || 'https://www.googleapis.com/auth/drive'
             };
@@ -121,6 +141,11 @@ export class TokenManager {
             this.tokens = internalTokenData;
             this.useSimpleToken = true;
 
+            this.logger.info('Successfully imported SimpleToken data', {
+                expiresAt: new Date(internalTokenData.expiresAt).toISOString(),
+                scope: internalTokenData.scope,
+                hasRefreshToken: !!internalTokenData.refreshToken
+            });
             console.log('TokenManager: Successfully imported SimpleToken data');
             return true;
         } catch (error) {
@@ -133,22 +158,36 @@ export class TokenManager {
      * Get a valid access token, refreshing if necessary
      */
     async getValidAccessToken(): Promise<string> {
+        this.logger.debug('Getting valid access token');
+
         // Load tokens from storage if not already loaded
         if (!this.tokens) {
+            this.logger.debug('No tokens in memory, loading from storage');
             await this.loadTokens();
         }
 
         if (!this.tokens) {
+            this.logger.error('No tokens available after loading from storage');
             throw new Error('No tokens available. Please authorize first.');
         }
 
         // Check if token is expired (with 5-minute buffer)
         const now = Date.now();
         const expiryBuffer = 5 * 60 * 1000; // 5 minutes
+        const timeUntilExpiry = this.tokens.expiresAt - now;
+
+        this.logger.debug('Token expiry check', {
+            expiresAt: new Date(this.tokens.expiresAt).toISOString(),
+            timeUntilExpiry: Math.floor(timeUntilExpiry / 1000) + ' seconds',
+            needsRefresh: now >= (this.tokens.expiresAt - expiryBuffer)
+        });
 
         if (now >= (this.tokens.expiresAt - expiryBuffer)) {
             // Token is expired or about to expire, refresh it
+            this.logger.info('Token expired or expiring soon, refreshing');
             await this.refreshTokens();
+        } else {
+            this.logger.debug('Token is still valid');
         }
 
         return this.tokens.accessToken;
@@ -219,7 +258,15 @@ export class TokenManager {
         try {
             const pluginData = await this.plugin.loadData() || {};
             this.tokens = pluginData[TOKEN_STORAGE_KEY] || null;
+
+            this.logger.debug('Loaded tokens from storage', {
+                hasTokens: !!this.tokens,
+                tokenKeys: this.tokens ? Object.keys(this.tokens) : [],
+                hasAccessToken: !!(this.tokens?.accessToken),
+                expiresAt: this.tokens?.expiresAt ? new Date(this.tokens.expiresAt).toISOString() : 'none'
+            });
         } catch (error) {
+            this.logger.error('Failed to load tokens from storage', error as Error);
             console.error('Failed to load tokens:', error);
             this.tokens = null;
         }

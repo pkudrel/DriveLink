@@ -129,7 +129,7 @@ const OAUTH_CONFIG = {
     tokenUrl: 'https://oauth2.googleapis.com/token',
 
     // Google Drive API scope
-    scope: 'https://www.googleapis.com/auth/drive.file',
+    scope: 'https://www.googleapis.com/auth/drive',
 
     // Redirect URI for installed applications
     redirectUri: 'http://localhost:8080/callback',

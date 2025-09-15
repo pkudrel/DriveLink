@@ -171,7 +171,7 @@ export class DriveFileOperations {
         body.set(closeBlob, offset);
 
         // Send request
-        const response = await fetch(`${this.uploadUrl}?uploadType=multipart&fields=id,name,mimeType,size,modifiedTime,etag,md5Checksum`, {
+        const response = await fetch(`${this.uploadUrl}?uploadType=multipart&fields=id,name,mimeType,size,modifiedTime,md5Checksum`, {
             method: 'POST',
             headers: {
                 'Authorization': `Bearer ${accessToken}`,
@@ -211,7 +211,7 @@ export class DriveFileOperations {
             parents: options.parentId ? [options.parentId] : undefined
         };
 
-        const initResponse = await fetch(`${this.uploadUrl}?uploadType=resumable&fields=id,name,mimeType,size,modifiedTime,etag,md5Checksum`, {
+        const initResponse = await fetch(`${this.uploadUrl}?uploadType=resumable&fields=id,name,mimeType,size,modifiedTime,md5Checksum`, {
             method: 'POST',
             headers: {
                 'Authorization': `Bearer ${accessToken}`,
@@ -295,7 +295,7 @@ export class DriveFileOperations {
     ): Promise<DriveFile> {
         const accessToken = await this.tokenManager.getValidAccessToken();
 
-        const response = await fetch(`${this.uploadUrl}/${fileId}?uploadType=media&fields=id,name,mimeType,size,modifiedTime,etag,md5Checksum`, {
+        const response = await fetch(`${this.uploadUrl}/${fileId}?uploadType=media&fields=id,name,mimeType,size,modifiedTime,md5Checksum`, {
             method: 'PATCH',
             headers: {
                 'Authorization': `Bearer ${accessToken}`,
@@ -326,7 +326,7 @@ export class DriveFileOperations {
         const accessToken = await this.tokenManager.getValidAccessToken();
 
         // Step 1: Initiate resumable update
-        const initResponse = await fetch(`${this.uploadUrl}/${fileId}?uploadType=resumable&fields=id,name,mimeType,size,modifiedTime,etag,md5Checksum`, {
+        const initResponse = await fetch(`${this.uploadUrl}/${fileId}?uploadType=resumable&fields=id,name,mimeType,size,modifiedTime,md5Checksum`, {
             method: 'PATCH',
             headers: {
                 'Authorization': `Bearer ${accessToken}`,
@@ -362,7 +362,7 @@ export class DriveFileOperations {
         try {
             const accessToken = await this.tokenManager.getValidAccessToken();
 
-            const response = await fetch(`${this.downloadUrl}/${fileId}?fields=etag`, {
+            const response = await fetch(`${this.downloadUrl}/${fileId}?fields=id`, {
                 method: 'HEAD',
                 headers: {
                     'Authorization': `Bearer ${accessToken}`

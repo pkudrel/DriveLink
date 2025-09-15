@@ -115,7 +115,8 @@ export class IndexManager {
     async scanVaultFiles(
         ignorePatterns: string[] = [],
         enableExtensionFiltering: boolean = false,
-        allowedFileExtensions: string[] = []
+        allowedFileExtensions: string[] = [],
+        allowFolders: boolean = true
     ): Promise<Map<string, TFile>> {
         const files = new Map<string, TFile>();
         const vault = this.plugin.app.vault;
@@ -128,7 +129,9 @@ export class IndexManager {
                 file.path,
                 enableExtensionFiltering,
                 allowedFileExtensions,
-                ignorePatterns
+                ignorePatterns,
+                false,
+                allowFolders
             )) {
                 continue;
             }
@@ -209,12 +212,14 @@ export class IndexManager {
     async detectLocalChanges(
         ignorePatterns: string[] = [],
         enableExtensionFiltering: boolean = false,
-        allowedFileExtensions: string[] = []
+        allowedFileExtensions: string[] = [],
+        allowFolders: boolean = true
     ): Promise<ChangeDetectionResult> {
         const currentFiles = await this.scanVaultFiles(
             ignorePatterns,
             enableExtensionFiltering,
-            allowedFileExtensions
+            allowedFileExtensions,
+            allowFolders
         );
         const comparison: IndexComparison = {
             localChanges: [],
@@ -268,12 +273,14 @@ export class IndexManager {
         remoteFiles: DriveFile[],
         ignorePatterns: string[] = [],
         enableExtensionFiltering: boolean = false,
-        allowedFileExtensions: string[] = []
+        allowedFileExtensions: string[] = [],
+        allowFolders: boolean = true
     ): Promise<IndexComparison> {
         const localResult = await this.detectLocalChanges(
             ignorePatterns,
             enableExtensionFiltering,
-            allowedFileExtensions
+            allowedFileExtensions,
+            allowFolders
         );
         const comparison = localResult.comparison;
 
@@ -310,7 +317,7 @@ export class IndexManager {
             const remoteModified = new Date(remoteFile.modifiedTime).getTime();
             const lastSyncTime = indexEntry.lastSyncTime || 0;
 
-            if (remoteModified > lastSyncTime || remoteFile.etag !== indexEntry.etag) {
+            if (remoteModified > lastSyncTime) {
                 comparison.remoteChanges.push(path);
 
                 // Check for conflicts (both local and remote changes)
@@ -401,12 +408,14 @@ export class IndexManager {
     async rebuildIndex(
         ignorePatterns: string[] = [],
         enableExtensionFiltering: boolean = false,
-        allowedFileExtensions: string[] = []
+        allowedFileExtensions: string[] = [],
+        allowFolders: boolean = true
     ): Promise<void> {
         const files = await this.scanVaultFiles(
             ignorePatterns,
             enableExtensionFiltering,
-            allowedFileExtensions
+            allowedFileExtensions,
+            allowFolders
         );
 
         // Keep existing Drive mappings but update file metadata

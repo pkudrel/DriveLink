@@ -6,6 +6,7 @@ import { IndexManager, IndexComparison, LocalFileEntry } from './index-manager';
 import { ConflictResolver } from './conflict-resolver';
 import { DriveLinkSettings } from '../settings';
 import { shouldSyncFile } from '../utils/extension-filter';
+import { Logger } from '../utils/logger';
 
 /**
  * Sync operation result
@@ -62,6 +63,7 @@ export class SyncEngine {
     private conflictResolver: ConflictResolver;
     private settings: DriveLinkSettings;
     private isSyncing = false;
+    private logger = Logger.createComponentLogger('SyncEngine');
 
     constructor(
         app: App,
@@ -102,10 +104,12 @@ export class SyncEngine {
      */
     async performSync(options: SyncOptions = {}): Promise<SyncResult> {
         if (this.isSyncing) {
+            this.logger.warn('Sync attempt blocked - already in progress');
             throw new Error('Sync already in progress');
         }
 
         this.isSyncing = true;
+        this.logger.info('Starting sync operation', { operation: 'performSync' });
         const stats: SyncStats = {
             filesUploaded: 0,
             filesDownloaded: 0,
@@ -123,19 +127,37 @@ export class SyncEngine {
             }
 
             // Step 1: Get remote files from Drive folder
+            this.logger.debug('Getting remote files from Drive');
             const remoteFiles = await this.getRemoteFiles(options.onProgress);
+            this.logger.info(`Found ${remoteFiles.length} remote files`);
 
             // Step 2: Detect changes
             if (options.onProgress) {
                 options.onProgress('Detecting changes...', 0, 0);
             }
 
+            this.logger.debug('Comparing with remote files', {
+                ignoreGlobs: this.settings.ignoreGlobs,
+                extensionFiltering: this.settings.enableExtensionFiltering
+            });
             const comparison = await this.indexManager.compareWithRemoteFiles(
                 remoteFiles,
                 this.settings.ignoreGlobs,
                 this.settings.enableExtensionFiltering,
-                this.settings.allowedFileExtensions
+                this.settings.allowedFileExtensions,
+                this.settings.allowFolders
             );
+
+            // Log detailed comparison results
+            this.logger.info('File comparison results', {
+                localChanges: comparison.localChanges.length,
+                remoteChanges: comparison.remoteChanges.length,
+                newLocal: comparison.newLocal.length,
+                newRemote: comparison.newRemote.length,
+                deletedLocal: comparison.deletedLocal.length,
+                deletedRemote: comparison.deletedRemote.length,
+                conflicts: comparison.conflicts.length
+            });
 
             // Calculate total operations
             const totalOps = comparison.localChanges.length +
@@ -146,6 +168,7 @@ export class SyncEngine {
                             comparison.deletedRemote.length;
 
             if (totalOps === 0) {
+                this.logger.info('No changes detected - sync complete');
                 if (options.onProgress) {
                     options.onProgress('No changes detected', 0, 0);
                 }
@@ -158,6 +181,8 @@ export class SyncEngine {
                     stats
                 };
             }
+
+            this.logger.info(`Starting sync of ${totalOps} operations`);
 
             // Step 3: Handle conflicts first
             const conflicts = await this.resolveConflicts(comparison, options, stats);
@@ -198,6 +223,11 @@ export class SyncEngine {
             stats.endTime = Date.now();
             stats.duration = stats.endTime - stats.startTime;
 
+            this.logger.error('Sync operation failed', error as Error, {
+                duration: stats.duration,
+                stats: stats
+            });
+
             return {
                 success: false,
                 error: error.message,
@@ -205,11 +235,12 @@ export class SyncEngine {
             };
         } finally {
             this.isSyncing = false;
+            this.logger.debug('Sync operation completed, releasing lock');
         }
     }
 
     /**
-     * Get all files from the configured Drive folder
+     * Get all files from the configured Drive folder (recursively)
      */
     private async getRemoteFiles(onProgress?: SyncProgressCallback): Promise<DriveFile[]> {
         if (!this.settings.driveFolderId) {
@@ -220,17 +251,83 @@ export class SyncEngine {
             onProgress('Fetching remote files...', 0, 0);
         }
 
+        this.logger.info('Fetching remote files from Drive folder (recursive)', {
+            folderId: this.settings.driveFolderId
+        });
+
+        const allFiles = await this.getRemoteFilesRecursive(this.settings.driveFolderId, '', onProgress);
+
+        // Log all remote files found with detailed filtering analysis
+        this.logger.info('Remote files discovery complete', {
+            totalFiles: allFiles.length,
+            fileDetails: allFiles.map(f => ({
+                name: f.name,
+                path: f.path || f.name,
+                mimeType: f.mimeType,
+                size: f.size,
+                modifiedTime: f.modifiedTime
+            }))
+        });
+
+        // Show filtering analysis for each file
+        console.log(`\n[SYNC DEBUG] Remote Files Filtering Analysis:`);
+        console.log(`Extension filtering enabled: ${this.settings.enableExtensionFiltering}`);
+        console.log(`Allowed extensions: [${this.settings.allowedFileExtensions.join(', ')}]`);
+        console.log(`Ignore patterns: [${this.settings.ignoreGlobs.join(', ')}]`);
+        console.log(`\nAnalyzing ${allFiles.length} remote files:`);
+
+        allFiles.forEach(file => {
+            const filePath = file.path || file.name;
+            const shouldSync = shouldSyncFile(
+                filePath,
+                this.settings.enableExtensionFiltering,
+                this.settings.allowedFileExtensions,
+                this.settings.ignoreGlobs,
+                true,
+                this.settings.allowFolders
+            );
+        });
+
+        return allFiles;
+    }
+
+    /**
+     * Recursively get all files from a folder and its subfolders
+     */
+    private async getRemoteFilesRecursive(
+        folderId: string,
+        parentPath: string = '',
+        onProgress?: SyncProgressCallback
+    ): Promise<DriveFile[]> {
         const allFiles: DriveFile[] = [];
         let pageToken: string | undefined;
 
         do {
-            const response = await this.driveClient.listFiles(
-                this.settings.driveFolderId,
-                pageToken,
-                100
-            );
+            const response = await this.driveClient.listFiles(folderId, pageToken, 100);
 
-            allFiles.push(...response.files);
+            for (const file of response.files) {
+                // Calculate the full path for this file
+                const filePath = parentPath ? `${parentPath}/${file.name}` : file.name;
+
+                // Add path property to the file
+                const fileWithPath = { ...file, path: filePath };
+                allFiles.push(fileWithPath);
+
+                this.logger.debug('Found remote item', {
+                    name: file.name,
+                    path: filePath,
+                    mimeType: file.mimeType,
+                    isFolder: file.mimeType === 'application/vnd.google-apps.folder'
+                });
+
+                // If this is a folder, recursively get its contents
+                if (file.mimeType === 'application/vnd.google-apps.folder') {
+                    this.logger.debug(`Scanning folder: ${filePath}`);
+                    const subFiles = await this.getRemoteFilesRecursive(file.id, filePath, onProgress);
+                    allFiles.push(...subFiles);
+                }
+            }
+
             pageToken = response.nextPageToken;
 
             if (onProgress) {
@@ -320,12 +417,15 @@ export class SyncEngine {
         const filesToDownload: DriveFile[] = [];
 
         // Include new remote files (filter by extensions)
+        console.log(`\n[SYNC DEBUG] Filtering new remote files for download:`);
         for (const remoteFile of comparison.newRemote) {
             if (shouldSyncFile(
                 remoteFile.name,
                 this.settings.enableExtensionFiltering,
                 this.settings.allowedFileExtensions,
-                this.settings.ignoreGlobs
+                this.settings.ignoreGlobs,
+                true,
+                this.settings.allowFolders
             )) {
                 filesToDownload.push(remoteFile);
             }
@@ -453,28 +553,66 @@ export class SyncEngine {
         await this.indexManager.updateFileEntry(
             file,
             result.id,
-            result.etag
+            undefined // etag not available in Drive API v3
         );
     }
 
     /**
-     * Download a single file
+     * Download a single file or create a folder
      */
     private async downloadFile(remoteFile: DriveFile): Promise<void> {
-        const content = await this.fileOperations.downloadFile(remoteFile.id);
-
-        // Determine local path
+        // Determine local path - use full path if available
         let localPath = this.indexManager.getPathByDriveId(remoteFile.id);
         if (!localPath) {
-            localPath = remoteFile.name;
+            localPath = remoteFile.path || remoteFile.name;
         }
+
+        // Check if this is a folder (Google Drive folders have specific mimeType)
+        const isFolder = remoteFile.mimeType === 'application/vnd.google-apps.folder' ||
+                        (!remoteFile.mimeType && !localPath.includes('.'));
+
+        if (isFolder) {
+            this.logger.debug(`Creating folder: ${localPath}`, {
+                driveId: remoteFile.id,
+                mimeType: remoteFile.mimeType
+            });
+
+            // Ensure parent directories exist first
+            await this.ensureParentDirectoriesExist(localPath + '/dummy'); // Add dummy file to get parent dirs
+
+            // Create folder locally if it doesn't exist
+            const existing = this.app.vault.getAbstractFileByPath(localPath);
+            if (!existing) {
+                try {
+                    await this.app.vault.createFolder(localPath);
+                    this.logger.info(`Created folder: ${localPath}`);
+                } catch (error) {
+                    if (error.message?.includes('already exists')) {
+                        this.logger.debug(`Folder already exists: ${localPath}`);
+                    } else {
+                        throw error;
+                    }
+                }
+            }
+
+            // Update index for folder (folders don't have file objects, so we'll handle this differently)
+            // For now, we'll skip index updates for folders
+            this.logger.debug(`Folder sync completed: ${localPath}`);
+            return;
+        }
+
+        // Handle regular files
+        const content = await this.fileOperations.downloadFile(remoteFile.id);
+
+        // Ensure parent directories exist
+        await this.ensureParentDirectoriesExist(localPath);
 
         // Create or update file in vault
         const arrayBuffer = new Uint8Array(content);
         const existing = this.app.vault.getAbstractFileByPath(localPath);
         if (existing instanceof TFile) {
             await this.app.vault.modifyBinary(existing, arrayBuffer);
-            await this.indexManager.updateFileEntry(existing, remoteFile.id, remoteFile.etag);
+            await this.indexManager.updateFileEntry(existing, remoteFile.id, undefined);
             return;
         }
 
@@ -482,7 +620,43 @@ export class SyncEngine {
         await this.app.vault.createBinary(localPath, arrayBuffer);
         const created = this.app.vault.getAbstractFileByPath(localPath);
         if (created instanceof TFile) {
-            await this.indexManager.updateFileEntry(created, remoteFile.id, remoteFile.etag);
+            await this.indexManager.updateFileEntry(created, remoteFile.id, undefined);
+        }
+    }
+
+    /**
+     * Ensure all parent directories exist for a given file path
+     */
+    private async ensureParentDirectoriesExist(filePath: string): Promise<void> {
+        const pathParts = filePath.split('/');
+
+        // Remove the filename, keep only directory parts
+        const directoryParts = pathParts.slice(0, -1);
+
+        if (directoryParts.length === 0) {
+            return; // File is in root, no directories to create
+        }
+
+        // Build directory path incrementally
+        let currentPath = '';
+        for (const part of directoryParts) {
+            currentPath = currentPath ? `${currentPath}/${part}` : part;
+
+            // Check if directory exists
+            const existing = this.app.vault.getAbstractFileByPath(currentPath);
+            if (!existing) {
+                try {
+                    await this.app.vault.createFolder(currentPath);
+                    this.logger.debug(`Created directory: ${currentPath}`);
+                } catch (error) {
+                    if (error.message?.includes('already exists')) {
+                        this.logger.debug(`Directory already exists: ${currentPath}`);
+                    } else {
+                        this.logger.error(`Failed to create directory: ${currentPath}`, error as Error);
+                        throw error;
+                    }
+                }
+            }
         }
     }
 

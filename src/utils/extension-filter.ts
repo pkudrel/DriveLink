@@ -11,21 +11,53 @@ export function shouldSyncFile(
     filePath: string,
     enableExtensionFiltering: boolean,
     allowedFileExtensions: string[],
-    ignorePatterns: string[] = []
+    ignorePatterns: string[] = [],
+    debug: boolean = false,
+    allowFolders: boolean = true
 ): boolean {
+    const fileExtension = getFileExtension(filePath);
+    const isFolder = fileExtension === ''; // Files without extensions are typically folders
+
+    if (debug) {
+        console.log(`[FileFilter] Checking file: ${filePath}`);
+        console.log(`[FileFilter] - Extension: ${fileExtension}`);
+        console.log(`[FileFilter] - Is folder: ${isFolder}`);
+        console.log(`[FileFilter] - Extension filtering enabled: ${enableExtensionFiltering}`);
+        console.log(`[FileFilter] - Allowed extensions: [${allowedFileExtensions.join(', ')}]`);
+        console.log(`[FileFilter] - Allow folders: ${allowFolders}`);
+        console.log(`[FileFilter] - Ignore patterns: [${ignorePatterns.join(', ')}]`);
+    }
+
     // First check if file is ignored by patterns
     if (isIgnored(filePath, ignorePatterns)) {
+        if (debug) {
+            console.log(`[FileFilter] - REJECTED: File matches ignore pattern`);
+        }
         return false;
+    }
+
+    // Handle folders (items without extensions)
+    if (isFolder) {
+        if (debug) {
+            console.log(`[FileFilter] - ${allowFolders ? 'ACCEPTED' : 'REJECTED'}: Folder (${allowFolders ? 'folders allowed' : 'folders not allowed'})`);
+        }
+        return allowFolders;
     }
 
     // If extension filtering is disabled, sync all non-ignored files
     if (!enableExtensionFiltering) {
+        if (debug) {
+            console.log(`[FileFilter] - ACCEPTED: Extension filtering disabled`);
+        }
         return true;
     }
 
     // If extension filtering is enabled, check if file extension is allowed
-    const fileExtension = getFileExtension(filePath);
-    return allowedFileExtensions.includes(fileExtension);
+    const isAllowed = allowedFileExtensions.includes(fileExtension);
+    if (debug) {
+        console.log(`[FileFilter] - ${isAllowed ? 'ACCEPTED' : 'REJECTED'}: Extension ${fileExtension} ${isAllowed ? 'is' : 'is not'} in allowed list`);
+    }
+    return isAllowed;
 }
 
 /**

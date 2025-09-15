@@ -1,4 +1,5 @@
 import { TokenManager } from '../auth/token-manager';
+import { Logger } from '../utils/logger';
 
 /**
  * Google Drive API file metadata
@@ -10,8 +11,8 @@ export interface DriveFile {
     size?: string;
     modifiedTime: string;
     parents?: string[];
-    etag: string;
     md5Checksum?: string;
+    path?: string; // Full path from root (added by sync engine)
 }
 
 /**
@@ -44,6 +45,7 @@ interface DriveError {
 export class DriveClient {
     private tokenManager: TokenManager;
     private baseUrl = 'https://www.googleapis.com/drive/v3';
+    private logger = Logger.createComponentLogger('DriveClient');
 
     constructor(tokenManager: TokenManager) {
         this.tokenManager = tokenManager;
@@ -56,17 +58,44 @@ export class DriveClient {
         endpoint: string,
         options: RequestInit = {}
     ): Promise<Response> {
+        const url = `${this.baseUrl}${endpoint}`;
+        const startTime = Date.now();
+
+        this.logger.debug(`API Request: ${options.method || 'GET'} ${url}`, {
+            endpoint,
+            method: options.method || 'GET'
+        });
+
         const accessToken = await this.tokenManager.getValidAccessToken();
+        this.logger.debug('Retrieved access token for API request', {
+            hasToken: !!accessToken,
+            tokenLength: accessToken?.length || 0,
+            tokenPrefix: accessToken?.substring(0, 20) + '...'
+        });
 
         const headers: Record<string, string> = {
-            'Authorization': `Bearer ${accessToken}`,
+            'Authorization': `Bearer ${accessToken?.substring(0, 20)}...`,
             'Content-Type': 'application/json',
             ...options.headers as Record<string, string>
         };
 
-        const response = await fetch(`${this.baseUrl}${endpoint}`, {
+        const response = await fetch(url, {
             ...options,
-            headers
+            headers: {
+                'Authorization': `Bearer ${accessToken}`,
+                'Content-Type': 'application/json',
+                ...options.headers as Record<string, string>
+            }
+        });
+
+        const duration = Date.now() - startTime;
+        this.logger.debug(`API Response: ${response.status} ${response.statusText}`, {
+            url,
+            status: response.status,
+            statusText: response.statusText,
+            duration,
+            contentType: response.headers.get('content-type'),
+            contentLength: response.headers.get('content-length')
         });
 
         if (!response.ok) {
@@ -77,6 +106,15 @@ export class DriveClient {
                     errors: []
                 }
             }));
+
+            this.logger.error(`Drive API error ${errorData.error.code}: ${errorData.error.message}`, undefined, {
+                url,
+                status: response.status,
+                statusText: response.statusText,
+                duration,
+                errorData: errorData.error,
+                endpoint
+            });
 
             throw new Error(
                 `Drive API error ${errorData.error.code}: ${errorData.error.message}`
@@ -96,7 +134,7 @@ export class DriveClient {
     ): Promise<DriveListResponse> {
         const params = new URLSearchParams({
             q: `'${folderId}' in parents and trashed=false`,
-            fields: 'files(id,name,mimeType,size,modifiedTime,parents,etag,md5Checksum),nextPageToken,incompleteSearch',
+            fields: 'files(id,name,mimeType,size,modifiedTime,parents,md5Checksum),nextPageToken,incompleteSearch',
             pageSize: pageSize.toString()
         });
 
@@ -113,7 +151,7 @@ export class DriveClient {
      */
     async getFileMetadata(fileId: string): Promise<DriveFile> {
         const params = new URLSearchParams({
-            fields: 'id,name,mimeType,size,modifiedTime,parents,etag,md5Checksum'
+            fields: 'id,name,mimeType,size,modifiedTime,parents,md5Checksum'
         });
 
         const response = await this.makeRequest(`/files/${fileId}?${params.toString()}`);
@@ -242,7 +280,7 @@ export class DriveClient {
     ): Promise<DriveListResponse> {
         const params = new URLSearchParams({
             q: query,
-            fields: 'files(id,name,mimeType,size,modifiedTime,parents,etag,md5Checksum),nextPageToken',
+            fields: 'files(id,name,mimeType,size,modifiedTime,parents,md5Checksum),nextPageToken',
             pageSize: pageSize.toString()
         });
 

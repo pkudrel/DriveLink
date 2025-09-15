@@ -44,7 +44,7 @@ GOOGLE_CLIENT_SECRET=${clientSecret || 'YOUR_CLIENT_SECRET_HERE'}
 
 # OAuth Configuration
 GOOGLE_REDIRECT_URI=http://localhost:8080/callback
-GOOGLE_SCOPE=https://www.googleapis.com/auth/drive.file
+GOOGLE_SCOPE=https://www.googleapis.com/auth/drive
 
 # Token Storage (filled automatically after OAuth flow)
 GOOGLE_ACCESS_TOKEN=
@@ -75,7 +75,7 @@ function generatePluginConfig(tokens) {
             refresh_token: tokens?.refreshToken || "YOUR_REFRESH_TOKEN_HERE",
             token_type: tokens?.tokenType || "Bearer",
             expires_in: tokens?.expiresIn || 3600,
-            scope: tokens?.scope || "https://www.googleapis.com/auth/drive.file"
+            scope: tokens?.scope || "https://www.googleapis.com/auth/drive"
         },
         drivelink: {
             syncFolderId: "",

@@ -3,6 +3,7 @@ import { DriveLinkSettings, DEFAULT_SETTINGS, DriveLinkSettingTab } from './sett
 import { TokenManager } from './auth/token-manager';
 import { DriveClient } from './drive/client';
 import { SyncEngine } from './sync/sync-engine';
+import { Logger, LogLevel } from './utils/logger';
 
 export default class DriveLinkPlugin extends Plugin {
 	settings: DriveLinkSettings;
@@ -14,6 +15,11 @@ export default class DriveLinkPlugin extends Plugin {
 	
 	async onload() {
 		await this.loadSettings();
+
+		// Initialize logging system
+		Logger.setLevel(this.settings.debugLevel || LogLevel.INFO);
+		const logger = Logger.createComponentLogger('Main');
+		logger.info('DriveLink plugin loading...');
 
 		// Initialize core components
 		this.tokenManager = new TokenManager(this);
@@ -98,6 +104,17 @@ export default class DriveLinkPlugin extends Plugin {
 		try {
 			if (!await this.tokenManager.hasValidToken()) {
 				throw new Error('No valid tokens found. Please set up SimpleToken CLI first.');
+			}
+
+			// If a folder ID is already set in settings, validate it
+			if (this.settings.driveFolderId) {
+				try {
+					await this.driveClient.listFiles(this.settings.driveFolderId, undefined, 1);
+					console.log('Using existing Drive folder:', this.settings.driveFolderId);
+					return;
+				} catch (error) {
+					console.warn('Existing folder ID is invalid, creating new folder');
+				}
 			}
 
 			const folderId = await this.driveClient.createOrFindFolder('ObsidianVault');

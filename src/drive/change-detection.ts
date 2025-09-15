@@ -104,7 +104,7 @@ export class DriveChangeDetection {
 
         const params = new URLSearchParams({
             pageToken,
-            fields: 'changes(changeId,time,removed,file(id,name,mimeType,size,modifiedTime,parents,etag,md5Checksum),fileId),nextPageToken,newStartPageToken'
+            fields: 'changes(changeId,time,removed,file(id,name,mimeType,size,modifiedTime,parents,md5Checksum),fileId),nextPageToken,newStartPageToken'
         });
 
         // Add optional parameters

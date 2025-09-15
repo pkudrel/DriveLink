@@ -39,6 +39,45 @@
     cursor: not-allowed;
 }
 
+.drivelink-import-actions {
+    display: flex !important;
+    flex-direction: row !important;
+    gap: 8px !important;
+    width: 100% !important;
+}
+
+.drivelink-import-actions .drivelink-button {
+    display: block !important;
+    width: auto !important;
+    margin: 0 !important;
+    float: none !important;
+    clear: both !important;
+    grid-column: 1 !important;
+    min-width: 120px;
+}
+
+.drivelink-import-container {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    margin-bottom: 1rem;
+}
+
+.drivelink-import-label {
+    margin: 0 0 8px 0;
+    font-size: 1rem;
+    font-weight: 600;
+}
+
+.drivelink-import-textarea {
+    border: 1px solid var(--background-modifier-border);
+    border-radius: 4px;
+    padding: 8px;
+    background: var(--background-primary);
+    color: var(--text-normal);
+    resize: vertical;
+}
+
 .drivelink-status {
     display: inline-block;
     padding: 0.25rem 0.5rem;
