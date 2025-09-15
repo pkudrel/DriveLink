@@ -28,7 +28,9 @@
       "Bash(cat:*)",
       "Bash(find:*)",
       "Bash(npx tsc:*)",
-      "Bash(grep:*)"
+      "Bash(grep:*)",
+      "Bash(set GITHUB_OUTPUT=temp_output.txt)",
+      "Bash(del temp_output.txt)"
     ],
     "deny": [],
     "ask": []

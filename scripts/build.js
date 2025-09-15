@@ -91,78 +91,8 @@ function parseSemverOutput(semverOutput) {
     return versionInfo;
 }
 
-// Fallback version calculation when semver script fails
-function getFallbackVersionInfo() {
-    console.log('Debug: Using fallback version calculation');
 
-    // Read base version from version.txt
-    const versionFile = path.join(__dirname, '..', 'version.txt');
-    const baseVersion = fs.existsSync(versionFile)
-        ? fs.readFileSync(versionFile, 'utf8').trim()
-        : '0.1.0';
-
-    // Parse base version
-    const parts = baseVersion.match(/^(\d+)\.(\d+)(?:\.(\d+))?$/);
-    if (!parts) {
-        throw new Error(`Invalid version format in version.txt: ${baseVersion}`);
-    }
-
-    const major = parts[1];
-    const minor = parts[2];
-    const basePatch = parseInt(parts[3] || '0', 10);
-
-    // Get commit count for increment (simple fallback)
-    let increment = 0;
-    try {
-        const commitCount = exec('git rev-list --count HEAD', true);
-        increment = parseInt(commitCount || '0', 10);
-    } catch (error) {
-        console.log('Debug: Could not get commit count, using 0');
-    }
-
-    const finalPatch = basePatch + increment;
-    const version = `${major}.${minor}.${finalPatch}`;
-    const tag = `v${version}`;
-
-    // Get other git info
-    let sha = '';
-    let shortSha = '';
-    let branch = 'unknown';
-
-    try {
-        sha = exec('git rev-parse HEAD', true) || '';
-        shortSha = exec('git rev-parse --short=7 HEAD', true) || sha.substring(0, 7);
-        branch = exec('git branch --show-current', true) || 'production';
-    } catch (error) {
-        console.log('Debug: Could not get git info');
-    }
-
-    const buildDate = new Date().toISOString().replace(/\.\d{3}Z$/, 'Z');
-
-    const versionInfo = {
-        version,
-        major,
-        minor,
-        patch: String(finalPatch),
-        tag,
-        sha,
-        shortSha,
-        branch,
-        buildDate
-    };
-
-    console.log(`Debug: Using fallback version: ${version}`);
-
-    log(`📦 Version: ${colors.bright}${versionInfo.version}${colors.reset}`);
-    log(`🏷️  Tag: ${versionInfo.tag}`);
-    log(`🌿 Branch: ${versionInfo.branch}`);
-    log(`📝 Commit: ${versionInfo.shortSha}`);
-    log(`📅 Build Date: ${versionInfo.buildDate}`);
-
-    return versionInfo;
-}
-
-// Get version info using the semver action (always)
+// Get version info using the semver action (single source of truth)
 function getVersionInfo() {
     logStep('1', 'Getting version information...');
 
@@ -211,15 +141,30 @@ function getVersionInfo() {
         }
 
         if (!semverOutput) {
-            console.log('Debug: Semver produced no output, using fallback versioning');
-            return getFallbackVersionInfo();
+            throw new Error(
+                'Semver script produced no output. This indicates a configuration issue.\n' +
+                'Please ensure:\n' +
+                '1. version.txt exists and contains a valid version (e.g., "0.1.0")\n' +
+                '2. Git repository has commits\n' +
+                '3. .github/actions/semver-js/index.js is working correctly\n' +
+                'Run: node .github/actions/semver-js/index.js (with proper env vars) to debug'
+            );
         }
 
         return parseSemverOutput(semverOutput);
     } catch (error) {
-        console.log(`Debug: Semver script failed: ${error.message}`);
-        console.log('Debug: Using fallback version calculation');
-        return getFallbackVersionInfo();
+        if (error.message.includes('Semver script produced no output')) {
+            throw error; // Re-throw our detailed error
+        }
+        throw new Error(
+            `Semver script execution failed: ${error.message}\n` +
+            'This indicates the semver-js action is not working correctly.\n' +
+            'Please ensure:\n' +
+            '1. .github/actions/semver-js/index.js exists and is executable\n' +
+            '2. Node.js can execute the script\n' +
+            '3. Git repository is properly initialized\n' +
+            'Debug with: node .github/actions/semver-js/index.js'
+        );
     }
 }
 
