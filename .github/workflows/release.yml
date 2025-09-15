@@ -82,9 +82,9 @@ jobs:
           cp releases/drivelink-v${VERSION}.checksums.txt release-artifacts/
 
           # Copy individual plugin files for direct download
-          cp manifest.json release-artifacts/
-          cp main.js release-artifacts/
-          cp styles.css release-artifacts/
+          cp dist/manifest.json release-artifacts/
+          cp dist/main.js release-artifacts/
+          cp dist/styles.css release-artifacts/
 
           # Create installation instructions
           cat > release-artifacts/INSTALL.md << EOF
