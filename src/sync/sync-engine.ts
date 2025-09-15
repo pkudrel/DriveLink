@@ -614,10 +614,15 @@ export class SyncEngine {
                            remoteFile.mimeType === 'application/vnd.google-apps.presentation' ||
                            remoteFile.mimeType === 'application/vnd.google-apps.form';
 
-        if (isGoogleDoc) {
+        // Also check for files that might be Google Docs without proper mimeType
+        const suspiciousFile = !remoteFile.mimeType && !localPath.includes('.') && remoteFile.id.length < 20;
+
+        if (isGoogleDoc || suspiciousFile) {
             this.logger.debug(`Ignoring Google Workspace document: ${localPath}`, {
                 driveId: remoteFile.id,
-                mimeType: remoteFile.mimeType
+                mimeType: remoteFile.mimeType,
+                suspicious: suspiciousFile,
+                reason: isGoogleDoc ? 'Known Google Workspace mimeType' : 'Suspicious file pattern'
             });
             return; // Skip Google Docs/Sheets/Slides/Forms
         }
@@ -672,10 +677,27 @@ export class SyncEngine {
         }
 
         // Create new file if it doesn't exist
-        await this.app.vault.createBinary(localPath, arrayBuffer);
-        const created = this.app.vault.getAbstractFileByPath(localPath);
-        if (created instanceof TFile) {
-            await this.indexManager.updateFileEntry(created, remoteFile.id, undefined);
+        try {
+            await this.app.vault.createBinary(localPath, arrayBuffer);
+            const created = this.app.vault.getAbstractFileByPath(localPath);
+            if (created instanceof TFile) {
+                await this.indexManager.updateFileEntry(created, remoteFile.id, undefined);
+            }
+        } catch (error) {
+            if (error.message?.includes('already exists') || error.message?.includes('File already exists')) {
+                // File was created by another process, try to update it instead
+                this.logger.debug(`File already exists, updating instead: ${localPath}`);
+                const existing = this.app.vault.getAbstractFileByPath(localPath);
+                if (existing instanceof TFile) {
+                    await this.app.vault.modifyBinary(existing, arrayBuffer);
+                    await this.indexManager.updateFileEntry(existing, remoteFile.id, undefined);
+                } else {
+                    this.logger.error(`File exists but couldn't retrieve it: ${localPath}`);
+                    throw error;
+                }
+            } else {
+                throw error;
+            }
         }
     }
 
