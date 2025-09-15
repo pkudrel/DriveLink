@@ -12,6 +12,7 @@ interface TokenData {
     expiresAt: number;
     tokenType: string;
     scope: string;
+    source?: 'manual' | 'simple_token'; // Track token source for persistence
 }
 
 /**
@@ -82,11 +83,13 @@ export class TokenManager {
                 refreshToken: tokenResponse.refresh_token,
                 expiresAt: Date.now() + (tokenResponse.expires_in * 1000),
                 tokenType: tokenResponse.token_type,
-                scope: tokenResponse.scope
+                scope: tokenResponse.scope,
+                source: 'manual'
             };
 
             await this.storeTokens(tokenData);
             this.tokens = tokenData;
+            this.useSimpleToken = false; // Manual OAuth flow
 
             console.log('OAuth tokens received and stored successfully');
         } catch (error) {
@@ -133,7 +136,8 @@ export class TokenManager {
                 refreshToken: tokenData.refresh_token,
                 expiresAt: expiresAt,
                 tokenType: tokenData.token_type || 'Bearer',
-                scope: tokenData.scope || 'https://www.googleapis.com/auth/drive'
+                scope: tokenData.scope || 'https://www.googleapis.com/auth/drive',
+                source: 'simple_token'
             };
 
             // Store tokens
@@ -263,16 +267,26 @@ export class TokenManager {
             const pluginData = await this.plugin.loadData() || {};
             this.tokens = pluginData[TOKEN_STORAGE_KEY] || null;
 
+            // Restore the useSimpleToken flag from stored source
+            if (this.tokens && this.tokens.source === 'simple_token') {
+                this.useSimpleToken = true;
+            } else {
+                this.useSimpleToken = false;
+            }
+
             this.logger.debug('Loaded tokens from storage', {
                 hasTokens: !!this.tokens,
                 tokenKeys: this.tokens ? Object.keys(this.tokens) : [],
                 hasAccessToken: !!(this.tokens?.accessToken),
-                expiresAt: this.tokens?.expiresAt ? new Date(this.tokens.expiresAt).toISOString() : 'none'
+                expiresAt: this.tokens?.expiresAt ? new Date(this.tokens.expiresAt).toISOString() : 'none',
+                source: this.tokens?.source || 'unknown',
+                useSimpleToken: this.useSimpleToken
             });
         } catch (error) {
             this.logger.error('Failed to load tokens from storage', error as Error);
             console.error('Failed to load tokens:', error);
             this.tokens = null;
+            this.useSimpleToken = false;
         }
     }
 
@@ -285,6 +299,7 @@ export class TokenManager {
             delete pluginData[TOKEN_STORAGE_KEY];
             await this.plugin.saveData(pluginData);
             this.tokens = null;
+            this.useSimpleToken = false;
             console.log('Tokens cleared');
         } catch (error) {
             console.error('Failed to clear tokens:', error);
@@ -330,7 +345,7 @@ export class TokenManager {
      */
     async disconnect(): Promise<void> {
         await this.clearTokens();
-        this.useSimpleToken = false;
+        // Note: useSimpleToken flag is already reset in clearTokens()
         // Note: Could also call Google's revoke endpoint here if needed
         console.log('Disconnected from Google Drive');
     }
