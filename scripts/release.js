@@ -125,7 +125,7 @@ function validateBuildFiles() {
 
     const missingFiles = [];
     for (const file of requiredFiles) {
-        const filePath = path.join(__dirname, '..', file);
+        const filePath = path.join(__dirname, '..', 'dist', file);
         if (!fs.existsSync(filePath)) {
             missingFiles.push(file);
         }
@@ -174,12 +174,12 @@ function copyPluginFiles(versionDir, version) {
     ];
 
     for (const file of files) {
-        const srcPath = path.join(__dirname, '..', file);
+        const srcPath = path.join(__dirname, '..', 'dist', file);
         const destPath = path.join(versionDir, file);
         fs.copyFileSync(srcPath, destPath);
     }
 
-    // Copy additional files if they exist
+    // Copy additional files if they exist (these are in the root)
     const optionalFiles = [
         'README.md',
         'LICENSE',
