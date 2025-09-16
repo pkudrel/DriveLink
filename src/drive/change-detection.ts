@@ -80,8 +80,20 @@ export class DriveChangeDetection {
         const accessToken = await this.tokenManager.getValidAccessToken();
 
         const params = new URLSearchParams();
-        if (options.driveId) params.append('driveId', options.driveId);
-        if (options.supportsAllDrives) params.append('supportsAllDrives', 'true');
+
+        // Add parameters consistently with how they'll be used in listChanges
+        const isDriveSpecific = !!(options.driveId);
+
+        if (isDriveSpecific) {
+            // Drive-specific token
+            params.append('driveId', options.driveId!);
+            params.append('supportsAllDrives', 'true');
+        } else {
+            // User-level token - no additional parameters needed for startPageToken
+            // The token scope will be determined by the absence of driveId
+        }
+
+        // Add other optional parameters if specified
         if (options.supportsTeamDrives) params.append('supportsTeamDrives', 'true');
         if (options.teamDriveId) params.append('teamDriveId', options.teamDriveId);
 
@@ -106,7 +118,12 @@ export class DriveChangeDetection {
 
         console.log(`[ChangeDetection] DEBUG: getStartPageToken response`);
         console.log(`[ChangeDetection] DEBUG: Response Status: ${response.status}`);
-        console.log(`[ChangeDetection] DEBUG: Response Headers:`, Object.fromEntries(response.headers.entries()));
+        console.log(`[ChangeDetection] DEBUG: Response Headers:`, {
+            'content-type': response.headers.get('content-type'),
+            'cache-control': response.headers.get('cache-control'),
+            'x-goog-api-version': response.headers.get('x-goog-api-version'),
+            'server': response.headers.get('server')
+        });
 
         if (!response.ok) {
             const errorText = await response.text();
@@ -144,19 +161,34 @@ export class DriveChangeDetection {
             fields: 'changes(changeId,time,removed,file(id,name,mimeType,size,modifiedTime,parents,md5Checksum),fileId),nextPageToken,newStartPageToken'
         });
 
-        // Add optional parameters
-        if (options.pageSize) params.append('pageSize', options.pageSize.toString());
+        // Determine if this is a drive-specific or user-level token based on options
+        const isDriveSpecific = !!(options.driveId);
+
+        if (isDriveSpecific) {
+            // Drive-specific token - include driveId and related parameters
+            params.append('driveId', options.driveId!);
+            params.append('supportsAllDrives', 'true');
+            params.append('includeRemoved', 'true');
+            params.append('spaces', 'drive');
+        } else {
+            // User-level token - include parameters for all drives access
+            params.append('supportsAllDrives', 'true');
+            params.append('includeItemsFromAllDrives', 'true');
+            params.append('includeRemoved', 'true');
+            params.append('spaces', 'drive');
+        }
+
+        // Add page size
+        params.append('pageSize', (options.pageSize || 100).toString());
+
+        // Add other optional parameters if specified
         if (options.restrictToMyDrive) params.append('restrictToMyDrive', 'true');
         if (options.includeCorpusRemovals) params.append('includeCorpusRemovals', 'true');
-        if (options.includeItemsFromAllDrives) params.append('includeItemsFromAllDrives', 'true');
         if (options.includePermissionsForView) params.append('includePermissionsForView', options.includePermissionsForView);
         if (options.includeLabels) params.append('includeLabels', options.includeLabels);
         if (options.includeTeamDriveItems) params.append('includeTeamDriveItems', 'true');
-        if (options.spaces) params.append('spaces', options.spaces);
-        if (options.supportsAllDrives) params.append('supportsAllDrives', 'true');
         if (options.supportsTeamDrives) params.append('supportsTeamDrives', 'true');
         if (options.teamDriveId) params.append('teamDriveId', options.teamDriveId);
-        if (options.driveId) params.append('driveId', options.driveId);
 
         const url = `${this.baseUrl}/changes?${params.toString()}`;
 
@@ -185,7 +217,12 @@ export class DriveChangeDetection {
         });
 
         console.log(`[ChangeDetection] DEBUG: Response Status: ${response.status}`);
-        console.log(`[ChangeDetection] DEBUG: Response Headers:`, Object.fromEntries(response.headers.entries()));
+        console.log(`[ChangeDetection] DEBUG: Response Headers:`, {
+            'content-type': response.headers.get('content-type'),
+            'cache-control': response.headers.get('cache-control'),
+            'x-goog-api-version': response.headers.get('x-goog-api-version'),
+            'server': response.headers.get('server')
+        });
 
         if (!response.ok) {
             const responseText = await response.text();
