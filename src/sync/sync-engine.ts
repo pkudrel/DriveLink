@@ -518,19 +518,71 @@ export class SyncEngine {
             }
 
             if (change.file) {
-                // Add path information if needed (this might require additional logic to determine full path)
-                const fileWithPath = { ...change.file, path: change.file.name };
+                // Resolve the full path by looking up parent folders
+                const fullPath = await this.resolveFilePathFromParents(change.file);
+                const fileWithPath = { ...change.file, path: fullPath };
                 files.push(fileWithPath);
 
                 this.logger.debug('Found changed file', {
                     name: change.file.name,
                     fileId: change.file.id,
-                    mimeType: change.file.mimeType
+                    mimeType: change.file.mimeType,
+                    path: fullPath,
+                    parents: change.file.parents
                 });
             }
         }
 
         return files;
+    }
+
+    /**
+     * Resolve the full path of a file by traversing its parent folders
+     */
+    private async resolveFilePathFromParents(file: any): Promise<string> {
+        if (!file.parents || file.parents.length === 0) {
+            return file.name;
+        }
+
+        const parentId = file.parents[0]; // Use the first parent
+
+        // If the parent is the root folder we're syncing from, file is at root level
+        if (parentId === this.settings.driveFolderId) {
+            return file.name;
+        }
+
+        try {
+            // Get parent folder information
+            const parentFolder = await this.driveClient.getFileMetadata(parentId);
+
+            if (!parentFolder) {
+                this.logger.warn('Could not resolve parent folder', { parentId, fileName: file.name });
+                return file.name;
+            }
+
+            // Recursively resolve parent path
+            const parentPath = await this.resolveFilePathFromParents(parentFolder);
+
+            // Build full path
+            const fullPath = parentPath ? `${parentPath}/${file.name}` : file.name;
+
+            this.logger.debug('Resolved file path', {
+                fileName: file.name,
+                parentId,
+                parentName: parentFolder.name,
+                parentPath,
+                fullPath
+            });
+
+            return fullPath;
+
+        } catch (error) {
+            this.logger.error('Error resolving parent folder path', error as Error, {
+                parentId,
+                fileName: file.name
+            });
+            return file.name; // Fallback to just filename
+        }
     }
 
     /**
