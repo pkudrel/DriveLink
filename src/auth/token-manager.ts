@@ -304,6 +304,13 @@ export class TokenManager {
     private async loadTokens(): Promise<void> {
         try {
             const pluginData = await this.plugin.loadData() || {};
+
+            this.logger.debug('Raw plugin data keys', {
+                allKeys: Object.keys(pluginData),
+                hasTokenKey: TOKEN_STORAGE_KEY in pluginData,
+                tokenKeyValue: pluginData[TOKEN_STORAGE_KEY] ? 'present' : 'missing'
+            });
+
             this.tokens = pluginData[TOKEN_STORAGE_KEY] || null;
 
             // Restore the useSimpleToken flag from stored source
@@ -355,10 +362,19 @@ export class TokenManager {
     }> {
         // Load tokens from storage if not already loaded
         if (!this.tokens) {
+            this.logger.debug('No tokens in memory, loading from storage for status check');
             await this.loadTokens();
         }
 
+        this.logger.debug('getTokenStatus result', {
+            hasTokens: !!this.tokens,
+            useSimpleToken: this.useSimpleToken,
+            tokenSource: this.tokens?.source,
+            expiresAt: this.tokens?.expiresAt ? new Date(this.tokens.expiresAt).toISOString() : 'none'
+        });
+
         if (!this.tokens) {
+            this.logger.warn('No tokens found after loading - showing disconnected status');
             return {
                 connected: false,
                 source: 'none'
