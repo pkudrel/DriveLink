@@ -10,7 +10,6 @@ export type ChangeType = 'file' | 'drive';
  * Individual change record
  */
 export interface DriveChange {
-    id: string;
     time: string;
     removed?: boolean;
     file?: DriveFile;
@@ -158,7 +157,7 @@ export class DriveChangeDetection {
 
         const params = new URLSearchParams({
             pageToken,
-            fields: 'changes(id,time,removed,file(id,name,mimeType,size,modifiedTime,parents,md5Checksum),fileId),nextPageToken,newStartPageToken'
+            fields: 'changes(time,removed,file(id,name,mimeType,size,modifiedTime,parents,md5Checksum),fileId),nextPageToken,newStartPageToken'
         });
 
         // Determine if this is a drive-specific or user-level token based on options
