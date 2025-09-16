@@ -317,9 +317,10 @@ function validateTokens(tokens) {
 /**
  * Format tokens for DriveLink plugin usage
  * @param {object} tokens - Token object
+ * @param {object} credentials - Credentials object with clientId and clientSecret
  * @returns {string} Formatted token string for copying
  */
-function formatTokensForPlugin(tokens) {
+function formatTokensForPlugin(tokens, credentials = null) {
     if (!tokens) {
         return null;
     }
@@ -342,6 +343,12 @@ function formatTokensForPlugin(tokens) {
         expires_in: expiresIn || null,
         scope: scope || null
     };
+
+    // Include credentials if provided (for complete plugin package)
+    if (credentials && credentials.clientId && credentials.clientSecret) {
+        formattedTokens.client_id = credentials.clientId;
+        formattedTokens.client_secret = credentials.clientSecret;
+    }
 
     return JSON.stringify(formattedTokens, null, 2);
 }

@@ -237,8 +237,8 @@ async function startInteractiveSetup() {
                 log('\n📋 Your tokens have been generated and saved securely.');
                 log('You can now copy the following JSON to your DriveLink plugin settings:\n');
 
-                // Format tokens for plugin use
-                const formattedTokens = credentialManager.formatTokensForPlugin(tokenResult.tokens);
+                // Format tokens for plugin use (include credentials for complete package)
+                const formattedTokens = credentialManager.formatTokensForPlugin(tokenResult.tokens, credentials);
                 log(formattedTokens, colors.green);
 
                 log('\n📝 Next steps:');
