@@ -256,17 +256,40 @@ export class TokenManager {
      * Direct token refresh using Google OAuth endpoint
      */
     private async refreshTokenDirect(refreshToken: string): Promise<any> {
+        // Load client ID from SimpleToken credentials for refresh
+        let clientId: string | undefined;
+
+        if (this.useSimpleToken) {
+            try {
+                const { SimpleTokenBridge } = await import('./simple-token-bridge');
+                const credentials = await SimpleTokenBridge.loadCredentials();
+                clientId = credentials?.clientId;
+
+                if (!clientId) {
+                    throw new Error('No client ID available from SimpleToken credentials');
+                }
+            } catch (error) {
+                this.logger.error('Failed to load SimpleToken credentials for refresh', error as Error);
+                throw new Error(`Failed to load client ID: ${error.message}`);
+            }
+        }
+
+        const params: Record<string, string> = {
+            grant_type: 'refresh_token',
+            refresh_token: refreshToken,
+        };
+
+        // Include client_id if available (required for most OAuth flows)
+        if (clientId) {
+            params.client_id = clientId;
+        }
+
         const response = await fetch('https://oauth2.googleapis.com/token', {
             method: 'POST',
             headers: {
                 'Content-Type': 'application/x-www-form-urlencoded',
             },
-            body: new URLSearchParams({
-                grant_type: 'refresh_token',
-                refresh_token: refreshToken,
-                // Note: client_id and client_secret are not required for refresh_token grant
-                // when using tokens from SimpleToken CLI (public client flow)
-            })
+            body: new URLSearchParams(params)
         });
 
         if (!response.ok) {
