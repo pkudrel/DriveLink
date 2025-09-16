@@ -87,21 +87,45 @@ export class DriveChangeDetection {
 
         const url = `${this.baseUrl}/changes/startPageToken${params.toString() ? '?' + params.toString() : ''}`;
 
-        console.log(`[ChangeDetection] Requesting fresh start page token from: ${url}`);
+        // Full debug logging for startPageToken request
+        console.log(`[ChangeDetection] DEBUG: getStartPageToken request`);
+        console.log(`[ChangeDetection] DEBUG: URL: ${url}`);
+        console.log(`[ChangeDetection] DEBUG: Access Token Length: ${accessToken.length}`);
+        console.log(`[ChangeDetection] DEBUG: Options:`, JSON.stringify(options, null, 2));
+        console.log(`[ChangeDetection] DEBUG: Request Headers:`, {
+            'Authorization': `Bearer ${accessToken.substring(0, 20)}...`,
+            'Content-Type': 'application/json'
+        });
 
         const response = await fetch(url, {
             headers: {
-                'Authorization': `Bearer ${accessToken}`
+                'Authorization': `Bearer ${accessToken}`,
+                'Content-Type': 'application/json'
             }
         });
 
+        console.log(`[ChangeDetection] DEBUG: getStartPageToken response`);
+        console.log(`[ChangeDetection] DEBUG: Response Status: ${response.status}`);
+        console.log(`[ChangeDetection] DEBUG: Response Headers:`, Object.fromEntries(response.headers.entries()));
+
         if (!response.ok) {
             const errorText = await response.text();
-            console.error(`[ChangeDetection] Failed to get start page token: ${response.status} ${response.statusText}`, errorText);
-            throw new Error(`Failed to get start page token: ${response.status} ${response.statusText}`);
+            console.log(`[ChangeDetection] DEBUG: Error Response Body:`, errorText);
+
+            let errorDetails = '';
+            try {
+                const errorJson = JSON.parse(errorText);
+                errorDetails = JSON.stringify(errorJson, null, 2);
+                console.log(`[ChangeDetection] DEBUG: Parsed Error:`, errorJson);
+            } catch {
+                errorDetails = errorText;
+            }
+
+            throw new Error(`Failed to get start page token: ${response.status} ${response.statusText}\nDetails: ${errorDetails}`);
         }
 
         const data = await response.json();
+        console.log(`[ChangeDetection] DEBUG: Success Response Body:`, JSON.stringify(data, null, 2));
         console.log(`[ChangeDetection] Google Drive returned start page token:`, data);
         return data.startPageToken;
     }
@@ -134,17 +158,61 @@ export class DriveChangeDetection {
         if (options.teamDriveId) params.append('teamDriveId', options.teamDriveId);
         if (options.driveId) params.append('driveId', options.driveId);
 
-        const response = await fetch(`${this.baseUrl}/changes?${params.toString()}`, {
-            headers: {
-                'Authorization': `Bearer ${accessToken}`
-            }
+        const url = `${this.baseUrl}/changes?${params.toString()}`;
+
+        // Full debug logging for changes.list request
+        console.log(`[ChangeDetection] DEBUG: listChanges request`);
+        console.log(`[ChangeDetection] DEBUG: URL: ${url}`);
+        console.log(`[ChangeDetection] DEBUG: Page Token: "${pageToken}"`);
+        console.log(`[ChangeDetection] DEBUG: Page Token Length: ${pageToken.length}`);
+        console.log(`[ChangeDetection] DEBUG: Page Token Type: ${typeof pageToken}`);
+        console.log(`[ChangeDetection] DEBUG: Page Token Numeric: ${/^\d+$/.test(pageToken)}`);
+        console.log(`[ChangeDetection] DEBUG: Access Token Length: ${accessToken.length}`);
+        console.log(`[ChangeDetection] DEBUG: Options:`, JSON.stringify(options, null, 2));
+        console.log(`[ChangeDetection] DEBUG: All Params:`, Object.fromEntries(params.entries()));
+        console.log(`[ChangeDetection] DEBUG: Request Headers:`, {
+            'Authorization': `Bearer ${accessToken.substring(0, 20)}...`,
+            'Content-Type': 'application/json'
         });
 
+        const requestHeaders = {
+            'Authorization': `Bearer ${accessToken}`,
+            'Content-Type': 'application/json'
+        };
+
+        const response = await fetch(url, {
+            headers: requestHeaders
+        });
+
+        console.log(`[ChangeDetection] DEBUG: Response Status: ${response.status}`);
+        console.log(`[ChangeDetection] DEBUG: Response Headers:`, Object.fromEntries(response.headers.entries()));
+
         if (!response.ok) {
-            throw new Error(`Failed to list changes: ${response.status} ${response.statusText}`);
+            const responseText = await response.text();
+            console.log(`[ChangeDetection] DEBUG: Error Response Body:`, responseText);
+
+            let errorDetails = '';
+            try {
+                const errorJson = JSON.parse(responseText);
+                errorDetails = JSON.stringify(errorJson, null, 2);
+                console.log(`[ChangeDetection] DEBUG: Parsed Error:`, errorJson);
+            } catch {
+                errorDetails = responseText;
+            }
+
+            throw new Error(`Failed to list changes: ${response.status} ${response.statusText}\nDetails: ${errorDetails}`);
         }
 
-        return await response.json();
+        const responseJson = await response.json();
+        console.log(`[ChangeDetection] DEBUG: Full Success Response:`, JSON.stringify(responseJson, null, 2));
+        console.log(`[ChangeDetection] DEBUG: Success Response Summary:`, {
+            changesCount: responseJson.changes?.length || 0,
+            hasNextPageToken: !!responseJson.nextPageToken,
+            nextPageToken: responseJson.nextPageToken,
+            newStartPageToken: responseJson.newStartPageToken
+        });
+
+        return responseJson;
     }
 
     /**
