@@ -54,6 +54,9 @@ interface PageTokenData {
     isBootstrapped: boolean;
     syncCount: number;
     folderId?: string;
+    lastFullScan?: number; // Timestamp of last full scan
+    recentBootstraps?: number; // Count of recent bootstraps
+    bootstrapHistory?: number[]; // Timestamps of recent bootstraps
 }
 
 /**
@@ -150,21 +153,21 @@ export class DriveChangeDetection {
     async getAllChangesSinceLastCheck(
         folderId?: string,
         options: ChangeDetectionOptions = {}
-    ): Promise<{ changes: DriveChange[]; newPageToken: string; wasBootstrapped: boolean }> {
+    ): Promise<{ changes: DriveChange[]; newPageToken: string; wasBootstrapped: boolean; shouldSkipFullScan?: boolean }> {
         const tokenData = await this.getStoredPageTokenData();
 
         // If no token or token is too old, bootstrap fresh
         if (!tokenData || !tokenData.isBootstrapped || this.isTokenStale(tokenData)) {
             console.log('[ChangeDetection] No valid token found, bootstrapping fresh change detection');
             const startToken = await this.bootstrapChangeDetection(folderId, options);
-            return { changes: [], newPageToken: startToken, wasBootstrapped: true };
+            return { changes: [], newPageToken: startToken, wasBootstrapped: true, shouldSkipFullScan: false };
         }
 
         // Validate token matches current folder (if provided)
         if (folderId && tokenData.folderId && tokenData.folderId !== folderId) {
             console.log(`[ChangeDetection] Folder changed (${tokenData.folderId} -> ${folderId}), bootstrapping fresh`);
             const startToken = await this.bootstrapChangeDetection(folderId, options);
-            return { changes: [], newPageToken: startToken, wasBootstrapped: true };
+            return { changes: [], newPageToken: startToken, wasBootstrapped: true, shouldSkipFullScan: false };
         }
 
         const allChanges: DriveChange[] = [];
@@ -197,7 +200,7 @@ export class DriveChangeDetection {
                 if (pagesProcessed > 100) {
                     console.warn(`[ChangeDetection] Too many pages (${pagesProcessed}), stopping and bootstrapping fresh`);
                     const startToken = await this.bootstrapChangeDetection(folderId, options);
-                    return { changes: [], newPageToken: startToken, wasBootstrapped: true };
+                    return { changes: [], newPageToken: startToken, wasBootstrapped: true, shouldSkipFullScan: false };
                 }
 
             } catch (error) {
@@ -216,7 +219,12 @@ export class DriveChangeDetection {
 
                     console.log(`[ChangeDetection] Got different token (${testToken}), bootstrapping fresh`);
                     const startToken = await this.bootstrapChangeDetection(folderId, options);
-                    return { changes: [], newPageToken: startToken, wasBootstrapped: true };
+
+                    // Check if we should skip full scan due to recent activity
+                    const updatedTokenData = await this.getStoredPageTokenData();
+                    const shouldSkip = updatedTokenData ? this.shouldSkipFullScan(updatedTokenData) : false;
+
+                    return { changes: [], newPageToken: startToken, wasBootstrapped: true, shouldSkipFullScan: shouldSkip };
                 }
                 throw error;
             }
@@ -231,7 +239,7 @@ export class DriveChangeDetection {
 
         console.log(`[ChangeDetection] Incremental sync complete: ${allChanges.length} changes found across ${pagesProcessed} pages`);
 
-        return { changes: allChanges, newPageToken: currentPageToken, wasBootstrapped: false };
+        return { changes: allChanges, newPageToken: currentPageToken, wasBootstrapped: false, shouldSkipFullScan: false };
     }
 
     /**
@@ -356,12 +364,27 @@ export class DriveChangeDetection {
      */
     private async storePageTokenWithMetadata(token: string, metadata: Partial<PageTokenData> = {}): Promise<void> {
         try {
+            // Load existing data to preserve history
+            const existingData = await this.getStoredPageTokenData();
+            const now = Date.now();
+
+            // Update bootstrap history if this is a bootstrap
+            let bootstrapHistory = existingData?.bootstrapHistory || [];
+            if (metadata.isBootstrapped) {
+                bootstrapHistory.push(now);
+                // Keep only last 10 bootstrap timestamps to prevent unbounded growth
+                bootstrapHistory = bootstrapHistory.slice(-10);
+            }
+
             const tokenData: PageTokenData = {
                 token,
-                timestamp: Date.now(),
+                timestamp: now,
                 isBootstrapped: metadata.isBootstrapped || false,
                 syncCount: metadata.syncCount || 0,
                 folderId: metadata.folderId,
+                lastFullScan: existingData?.lastFullScan,
+                recentBootstraps: metadata.isBootstrapped ? (existingData?.recentBootstraps || 0) + 1 : existingData?.recentBootstraps,
+                bootstrapHistory,
                 ...metadata
             };
 
@@ -446,6 +469,46 @@ export class DriveChangeDetection {
     private async getStoredPageToken(): Promise<string | null> {
         const tokenData = await this.getStoredPageTokenData();
         return tokenData?.token || null;
+    }
+
+    /**
+     * Check if a full scan is needed based on recent bootstrap history
+     */
+    private shouldSkipFullScan(tokenData: PageTokenData): boolean {
+        const now = Date.now();
+        const oneHour = 60 * 60 * 1000;
+        const fifteenMinutes = 15 * 60 * 1000;
+
+        // If we had a full scan recently, skip it
+        if (tokenData.lastFullScan && (now - tokenData.lastFullScan) < oneHour) {
+            console.log(`[ChangeDetection] Skipping full scan - last scan was ${Math.round((now - tokenData.lastFullScan) / 1000 / 60)} minutes ago`);
+            return true;
+        }
+
+        // If we've had multiple bootstraps recently, avoid repeated full scans
+        const recentBootstraps = (tokenData.bootstrapHistory || []).filter(
+            timestamp => (now - timestamp) < fifteenMinutes
+        );
+
+        if (recentBootstraps.length >= 2) {
+            console.log(`[ChangeDetection] Skipping full scan - ${recentBootstraps.length} bootstraps in last 15 minutes`);
+            return true;
+        }
+
+        return false;
+    }
+
+    /**
+     * Mark that a full scan was completed
+     */
+    async markFullScanCompleted(): Promise<void> {
+        const tokenData = await this.getStoredPageTokenData();
+        if (tokenData) {
+            await this.storePageTokenWithMetadata(tokenData.token, {
+                ...tokenData,
+                lastFullScan: Date.now()
+            });
+        }
     }
 
     /**

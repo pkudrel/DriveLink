@@ -329,17 +329,26 @@ export class SyncEngine {
             wasBootstrapped = changeResult.wasBootstrapped;
 
             if (changeResult.wasBootstrapped) {
-                // Token was bootstrapped fresh, need to do full scan to capture existing files
-                this.logger.info('Change detection was bootstrapped fresh - performing full scan to capture existing files');
+                if (changeResult.shouldSkipFullScan) {
+                    // Bootstrap occurred but skip full scan due to recent activity
+                    this.logger.info('Change detection was bootstrapped fresh - skipping full scan due to recent bootstrap activity');
+                    allFiles = [];
+                    syncStrategy = 'change-detection-bootstrap-skipped-full-scan';
+                } else {
+                    // Token was bootstrapped fresh, need to do full scan to capture existing files
+                    this.logger.info('Change detection was bootstrapped fresh - performing full scan to capture existing files');
 
-                allFiles = await this.getRemoteFilesRecursive(
-                    this.settings.driveFolderId,
-                    '',
-                    onProgress,
-                    false // Force full scan, not timestamp-based
-                );
+                    allFiles = await this.getRemoteFilesRecursive(
+                        this.settings.driveFolderId,
+                        '',
+                        onProgress,
+                        false // Force full scan, not timestamp-based
+                    );
 
-                syncStrategy = 'change-detection-bootstrap-with-full-scan';
+                    // Mark that full scan was completed
+                    await this.changeDetection.markFullScanCompleted();
+                    syncStrategy = 'change-detection-bootstrap-with-full-scan';
+                }
             } else if (changeResult.changes.length === 0) {
                 // No changes detected
                 this.logger.info('No changes detected via change detection');
