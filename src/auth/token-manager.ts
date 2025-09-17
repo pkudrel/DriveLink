@@ -14,6 +14,7 @@ interface TokenData {
     source?: 'manual' | 'simple_token'; // Track token source for persistence
     clientId?: string; // OAuth client ID for token refresh
     clientSecret?: string; // OAuth client secret for token refresh
+    redirectUri?: string; // Redirect URI used during authorization
 }
 
 /**
@@ -31,6 +32,9 @@ export class TokenManager {
     private tokens: TokenData | null = null;
     private useSimpleToken: boolean = false;
     private logger = Logger.createComponentLogger('TokenManager');
+    private clientId: string | null = null;
+    private clientSecret: string | null = null;
+    private redirectUri: string | null = null;
 
     constructor(plugin: Plugin) {
         this.plugin = plugin;
@@ -39,14 +43,24 @@ export class TokenManager {
     /**
      * Initialize OAuth manager with client configuration
      */
-    initializeOAuth(clientId: string, redirectUri: string): void {
+    initializeOAuth(clientId: string, redirectUri: string, clientSecret?: string): void {
+        this.clientId = clientId;
+        this.clientSecret = clientSecret ?? null;
+        this.redirectUri = redirectUri;
         this.oauthManager = new OAuthManager(clientId, redirectUri);
+    }
+
+    clearOAuthConfiguration(): void {
+        this.oauthManager = null;
+        this.clientId = null;
+        this.clientSecret = null;
+        this.redirectUri = null;
     }
 
     /**
      * Start OAuth authorization flow
      */
-    async authorize(): Promise<void> {
+    async authorize(): Promise<string> {
         if (!this.oauthManager) {
             throw new Error('OAuth manager not initialized. Set client ID first.');
         }
@@ -58,8 +72,10 @@ export class TokenManager {
 
             // Note: The actual authorization completion will be handled via
             // the protocol handler in the main plugin when the callback is received
+            return authUrl;
         } catch (error) {
-            throw new Error(`Authorization failed: ${error.message}`);
+            const message = error instanceof Error ? error.message : 'Unknown error';
+            throw new Error(`Authorization failed: ${message}`);
         }
     }
 
@@ -85,7 +101,10 @@ export class TokenManager {
                 expiresAt: Date.now() + (tokenResponse.expires_in * 1000),
                 tokenType: tokenResponse.token_type,
                 scope: tokenResponse.scope,
-                source: 'manual'
+                source: 'manual',
+                clientId: this.clientId || undefined,
+                clientSecret: this.clientSecret || undefined,
+                redirectUri: this.redirectUri || undefined
             };
 
             await this.storeTokens(tokenData);
@@ -94,7 +113,8 @@ export class TokenManager {
 
             console.log('OAuth tokens received and stored successfully');
         } catch (error) {
-            throw new Error(`Callback handling failed: ${error.message}`);
+            const message = error instanceof Error ? error.message : 'Unknown error';
+            throw new Error(`Callback handling failed: ${message}`);
         }
     }
 
@@ -140,13 +160,17 @@ export class TokenManager {
                 scope: tokenData.scope || 'https://www.googleapis.com/auth/drive',
                 source: 'simple_token',
                 clientId: tokenData.client_id,
-                clientSecret: tokenData.client_secret
+                clientSecret: tokenData.client_secret,
+                redirectUri: tokenData.redirect_uri
             };
 
             // Store tokens
             await this.storeTokens(internalTokenData);
             this.tokens = internalTokenData;
             this.useSimpleToken = true;
+            this.clientId = internalTokenData.clientId ?? null;
+            this.clientSecret = internalTokenData.clientSecret ?? null;
+            this.redirectUri = internalTokenData.redirectUri ?? null;
 
             this.logger.info('Successfully imported SimpleToken data', {
                 expiresAt: new Date(internalTokenData.expiresAt).toISOString(),
@@ -156,7 +180,8 @@ export class TokenManager {
             console.log('TokenManager: Successfully imported SimpleToken data');
             return true;
         } catch (error) {
-            console.error('TokenManager: Failed to import SimpleToken data:', error.message);
+            const message = error instanceof Error ? error.message : 'Unknown error';
+            console.error('TokenManager: Failed to import SimpleToken data:', message);
             return false;
         }
     }
@@ -269,6 +294,10 @@ export class TokenManager {
             params.client_id = this.tokens.clientId;
         }
 
+        if (this.tokens?.clientSecret) {
+            params.client_secret = this.tokens.clientSecret;
+        }
+
         const response = await fetch('https://oauth2.googleapis.com/token', {
             method: 'POST',
             headers: {
@@ -320,6 +349,16 @@ export class TokenManager {
                 this.useSimpleToken = false;
             }
 
+            if (this.tokens) {
+                this.clientId = this.tokens.clientId ?? this.clientId;
+                this.clientSecret = this.tokens.clientSecret ?? this.clientSecret;
+                this.redirectUri = this.tokens.redirectUri ?? this.redirectUri;
+
+                if (!this.oauthManager && this.clientId && this.redirectUri) {
+                    this.oauthManager = new OAuthManager(this.clientId, this.redirectUri);
+                }
+            }
+
             this.logger.debug('Loaded tokens from storage', {
                 hasTokens: !!this.tokens,
                 tokenKeys: this.tokens ? Object.keys(this.tokens) : [],
@@ -346,6 +385,9 @@ export class TokenManager {
             await this.plugin.saveData(pluginData);
             this.tokens = null;
             this.useSimpleToken = false;
+            this.clientId = null;
+            this.clientSecret = null;
+            this.redirectUri = null;
             console.log('Tokens cleared');
         } catch (error) {
             console.error('Failed to clear tokens:', error);

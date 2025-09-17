@@ -22,6 +22,9 @@ export interface DriveLinkSettings {
     changeDetectionToken?: string; // Stored change detection token for Drive Changes API
     changeDetectionFailureCount?: number; // Count of consecutive change detection failures
     disableChangeDetection?: boolean; // Temporarily disable change detection if it keeps failing
+    oauthClientId: string;
+    oauthClientSecret?: string;
+    oauthRedirectUri: string;
 }
 
 /**
@@ -45,7 +48,10 @@ export const DEFAULT_SETTINGS: DriveLinkSettings = {
     syncType: 'two-way',
     concurrentDownloads: 5,
     concurrentUploads: 3,
-    debugLevel: LogLevel.INFO
+    debugLevel: LogLevel.INFO,
+    oauthClientId: '',
+    oauthClientSecret: '',
+    oauthRedirectUri: ''
 };
 
 /**
@@ -53,6 +59,7 @@ export const DEFAULT_SETTINGS: DriveLinkSettings = {
  */
 export class DriveLinkSettingTab extends PluginSettingTab {
     plugin: DriveLinkPlugin;
+    private connectionStatusContainer: HTMLElement | null = null;
 
     constructor(app: App, plugin: DriveLinkPlugin) {
         super(app, plugin);
@@ -62,6 +69,7 @@ export class DriveLinkSettingTab extends PluginSettingTab {
     display(): void {
         const { containerEl } = this;
         containerEl.empty();
+        this.connectionStatusContainer = null;
 
         // Add custom CSS class for styling
         containerEl.addClass('drivelink-settings');
@@ -89,18 +97,73 @@ export class DriveLinkSettingTab extends PluginSettingTab {
     private addAuthenticationSection(containerEl: HTMLElement): void {
         containerEl.createEl('h3', { text: 'Authentication' });
 
-        // Description
-        const descEl = containerEl.createEl('p', {
+        containerEl.createEl('p', {
             cls: 'setting-item-description',
-            text: 'Paste SimpleToken CLI generated tokens here.'
+            text: 'Connect to Google Drive using the built-in OAuth flow or import existing tokens from the SimpleToken CLI.'
         });
-        descEl.style.marginBottom = '4px';
+
+        this.addClientConfiguration(containerEl);
+
+        // Connection Status and Actions
+        this.connectionStatusContainer = containerEl.createDiv();
+        this.renderConnectionStatus(this.connectionStatusContainer);
+
+        containerEl.createEl('h4', { text: 'Import existing tokens (optional)' });
+        containerEl.createEl('p', {
+            cls: 'setting-item-description',
+            text: 'If you already generated tokens with the SimpleToken CLI, paste them below to connect without running the in-app OAuth flow.'
+        });
 
         // Token import area
         this.addTokenImport(containerEl);
+    }
 
-        // Connection Status and Actions
-        this.addConnectionStatus(containerEl);
+
+    private addClientConfiguration(containerEl: HTMLElement): void {
+        const instructions = containerEl.createDiv({ cls: 'setting-item-description' });
+        instructions.innerHTML = '1. Create a Google OAuth client (Web application or Desktop).<br>' +
+            '2. Host the provided callback page located at <code>callback/drive/index.html</code>.<br>' +
+            '3. Set the redirect URI in Google Cloud to the hosted callback URL (for example, <code>https://yourdomain.com/drivelink</code>).';
+        instructions.style.marginBottom = '12px';
+
+        new Setting(containerEl)
+            .setName('OAuth client ID')
+            .setDesc('Paste the client ID from Google Cloud Console. Required for the built-in OAuth flow.')
+            .addText(text => text
+                .setPlaceholder('e.g. 1234567890-abc.apps.googleusercontent.com')
+                .setValue(this.plugin.settings.oauthClientId)
+                .onChange(async (value) => {
+                    this.plugin.settings.oauthClientId = value.trim();
+                    await this.plugin.saveSettings();
+                    this.plugin.updateOAuthConfiguration();
+                    this.refreshConnectionStatus();
+                }));
+
+        new Setting(containerEl)
+            .setName('OAuth redirect URI')
+            .setDesc('The URL where you host the provided callback page. Must match the redirect URI configured in Google Cloud.')
+            .addText(text => text
+                .setPlaceholder('https://your-domain.com/drive-callback')
+                .setValue(this.plugin.settings.oauthRedirectUri)
+                .onChange(async (value) => {
+                    this.plugin.settings.oauthRedirectUri = value.trim();
+                    await this.plugin.saveSettings();
+                    this.plugin.updateOAuthConfiguration();
+                    this.refreshConnectionStatus();
+                }));
+
+        new Setting(containerEl)
+            .setName('OAuth client secret (optional)')
+            .setDesc('Only required if your OAuth client issues a secret. Most PKCE flows do not need this.')
+            .addText(text => text
+                .setPlaceholder('Leave blank for public clients')
+                .setValue(this.plugin.settings.oauthClientSecret || '')
+                .onChange(async (value) => {
+                    this.plugin.settings.oauthClientSecret = value.trim();
+                    await this.plugin.saveSettings();
+                    this.plugin.updateOAuthConfiguration();
+                    this.refreshConnectionStatus();
+                }));
     }
 
 
@@ -148,7 +211,7 @@ export class DriveLinkSettingTab extends PluginSettingTab {
                 const success = await this.plugin.tokenManager.importSimpleTokenData(tokenData);
                 if (success) {
                     textareaEl.value = ''; // Clear the input
-                    this.display(); // Refresh the settings tab
+                    this.refreshConnectionStatus();
                     // Could show success notice here
                 } else {
                     // Could show error notice here
@@ -165,63 +228,75 @@ export class DriveLinkSettingTab extends PluginSettingTab {
         });
     }
 
-    private async addConnectionStatus(containerEl: HTMLElement): Promise<void> {
-        const statusContainer = containerEl.createDiv({ cls: 'drivelink-connection-status' });
+    private renderConnectionStatus(containerEl: HTMLElement): void {
+        containerEl.empty();
+        containerEl.addClass('drivelink-connection-status');
 
-        // Get current connection status
-        const tokenStatus = await this.plugin.tokenManager.getTokenStatus();
-
-        // Status display
-        const statusEl = statusContainer.createDiv({ cls: 'drivelink-status-row' });
+        const statusEl = containerEl.createDiv({ cls: 'drivelink-status-row' });
         statusEl.createSpan({ text: 'Connection Status: ' });
 
-        const statusBadge = statusEl.createSpan({
-            cls: `drivelink-status ${tokenStatus.connected ? 'connected' : 'disconnected'}`,
-            text: tokenStatus.connected ? 'Connected' : 'Disconnected'
-        });
-
-        // Show token source
-        if (tokenStatus.connected && tokenStatus.source !== 'none') {
-            const sourceText = tokenStatus.source === 'simple_token'
-                ? '(via SimpleToken CLI)'
-                : '(manual OAuth)';
+        void (async () => {
+            const tokenStatus = await this.plugin.tokenManager.getTokenStatus();
             statusEl.createSpan({
-                text: ` ${sourceText}`,
-                cls: 'drivelink-token-source'
-            }).style.color = 'var(--text-muted)';
-        }
-
-        if (tokenStatus.connected && tokenStatus.expiresAt) {
-            const expiryDate = new Date(tokenStatus.expiresAt);
-            statusContainer.createDiv({
-                text: `Token expires: ${expiryDate.toLocaleString()}`,
-                cls: 'drivelink-token-expiry'
-            });
-        }
-
-
-        // Action buttons
-        const actionsEl = statusContainer.createDiv({ cls: 'drivelink-actions' });
-
-        if (tokenStatus.connected) {
-            // Disconnect button
-            actionsEl.createEl('button', {
-                text: 'Disconnect',
-                cls: 'drivelink-button'
-            }).addEventListener('click', async () => {
-                await this.plugin.tokenManager.disconnect();
-                this.display(); // Refresh the settings tab
-            });
-        } else {
-            // Connect button
-            const connectBtn = actionsEl.createEl('button', {
-                text: 'Connect to Google Drive',
-                cls: 'drivelink-button'
+                cls: `drivelink-status ${tokenStatus.connected ? 'connected' : 'disconnected'}`,
+                text: tokenStatus.connected ? 'Connected' : 'Disconnected'
             });
 
-            connectBtn.disabled = true;
-            connectBtn.title = 'Paste tokens above to connect';
+            if (tokenStatus.connected && tokenStatus.source !== 'none') {
+                const sourceText = tokenStatus.source === 'simple_token'
+                    ? '(via SimpleToken CLI)'
+                    : '(manual OAuth)';
+                statusEl.createSpan({
+                    text: ` ${sourceText}`,
+                    cls: 'drivelink-token-source'
+                }).style.color = 'var(--text-muted)';
+            }
+
+            if (tokenStatus.connected && tokenStatus.expiresAt) {
+                const expiryDate = new Date(tokenStatus.expiresAt);
+                containerEl.createDiv({
+                    text: `Token expires: ${expiryDate.toLocaleString()}`,
+                    cls: 'drivelink-token-expiry'
+                });
+            }
+
+            const actionsEl = containerEl.createDiv({ cls: 'drivelink-actions' });
+
+            if (tokenStatus.connected) {
+                actionsEl.createEl('button', {
+                    text: 'Disconnect',
+                    cls: 'drivelink-button'
+                }).addEventListener('click', async () => {
+                    await this.plugin.tokenManager.disconnect();
+                    this.refreshConnectionStatus();
+                });
+            } else {
+                const connectBtn = actionsEl.createEl('button', {
+                    text: 'Connect to Google Drive',
+                    cls: 'drivelink-button'
+                });
+
+                const hasClientConfig = Boolean(this.plugin.settings.oauthClientId && this.plugin.settings.oauthRedirectUri);
+                connectBtn.disabled = !hasClientConfig;
+                connectBtn.title = hasClientConfig
+                    ? 'Launch Google authorization in your browser.'
+                    : 'Enter your OAuth client information above to enable the connection.';
+
+                connectBtn.addEventListener('click', async () => {
+                    await this.plugin.connectToDrive();
+                });
+            }
+        })();
+    }
+
+    private refreshConnectionStatus(): void {
+        if (this.connectionStatusContainer) {
+            this.renderConnectionStatus(this.connectionStatusContainer);
         }
+    }
+
+    public handleTokenStatusChange(): void {
+        this.refreshConnectionStatus();
     }
 
     private addDriveSection(containerEl: HTMLElement): void {
