@@ -51,6 +51,7 @@ This is a private plugin not available in the Community Plugins catalog. Install
 3. Set your **OAuth Redirect URI** (your deployed callback page URL)
 4. Click **"Connect to Google Drive"**
 5. Complete the OAuth flow in your browser
+6. *(Optional)* Paste **SimpleToken CLI** output into the import area if you prefer using pre-generated tokens instead of the built-in flow.
 
 ### 2. Drive Folder Setup
 
