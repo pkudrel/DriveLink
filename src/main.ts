@@ -1,4 +1,4 @@
-import { Plugin } from 'obsidian';
+import { Notice, Plugin } from 'obsidian';
 import { DriveLinkSettings, DEFAULT_SETTINGS, DriveLinkSettingTab } from './settings';
 import { TokenManager } from './auth/token-manager';
 import { DriveClient } from './drive/client';
@@ -28,6 +28,15 @@ export default class DriveLinkPlugin extends Plugin {
                 this.driveClient = new DriveClient(this.tokenManager);
                 this.syncEngine = new SyncEngine(this.app, this.driveClient, this.settings, this);
 
+                // Initialize manual OAuth manager if configuration is available
+                if (this.settings.oauthClientId && this.settings.oauthRedirectUri) {
+                        this.tokenManager.initializeOAuth(
+                                this.settings.oauthClientId,
+                                this.settings.oauthRedirectUri,
+                                this.settings.oauthClientSecret || undefined
+                        );
+                }
+
                 // Initialize sync engine (index, change detection)
                 await this.syncEngine.initialize();
 
@@ -36,13 +45,17 @@ export default class DriveLinkPlugin extends Plugin {
                 this.addSettingTab(this.settingsTab);
 
                 // Add commands
-                // Authentication is managed through the settings tab, so no dedicated connect command is required
+                this.addCommand({
+                        id: 'connect-to-drive',
+                        name: 'Connect to Google Drive',
+                        callback: () => this.connectToDrive()
+                });
 
-		this.addCommand({
-			id: 'setup-drive-folder',
-			name: 'Set up Drive folder',
-			callback: () => this.setupDriveFolder()
-		});
+                this.addCommand({
+                        id: 'setup-drive-folder',
+                        name: 'Set up Drive folder',
+                        callback: () => this.setupDriveFolder()
+                });
 
 		this.addCommand({
 			id: 'sync-now',
@@ -55,6 +68,30 @@ export default class DriveLinkPlugin extends Plugin {
 			name: 'Reset change detection',
 			callback: () => this.resetChangeDetection()
 		});
+
+                // Register obsidian protocol handler for OAuth callback
+                this.registerObsidianProtocolHandler('plugin-drivelink', async (params) => {
+                        try {
+                                const { code, state, error, error_description } = params as Record<string, string>;
+                                if (error) {
+                                        new Notice(`DriveLink auth error: ${error_description || error}`);
+                                        return;
+                                }
+
+                                if (!code || !state) {
+                                        new Notice('DriveLink: Missing code/state in callback');
+                                        return;
+                                }
+
+                                const callbackUrl = `obsidian://plugin-drivelink/callback?code=${encodeURIComponent(code)}&state=${encodeURIComponent(state)}`;
+                                await this.tokenManager.handleCallback(callbackUrl);
+                                this.settingsTab?.handleTokenStatusChange();
+                                new Notice('DriveLink: Connected to Google Drive');
+                        } catch (e) {
+                                console.error('DriveLink OAuth callback failed:', e);
+                                new Notice('DriveLink: Authorization failed');
+                        }
+                });
 
                 // Optional: sync on startup if enabled
                 if (this.settings.syncOnStartup) {
@@ -72,9 +109,39 @@ export default class DriveLinkPlugin extends Plugin {
 		this.settings = Object.assign({}, DEFAULT_SETTINGS, await this.loadData());
 	}
 
-	async saveSettings() {
-		await this.saveData(this.settings);
-	}
+        async saveSettings() {
+                await this.saveData(this.settings);
+        }
+
+        async connectToDrive() {
+                try {
+                        if (!this.settings.oauthClientId || !this.settings.oauthRedirectUri) {
+                                throw new Error('Configure OAuth Client ID and Redirect URI in settings first.');
+                        }
+
+                        this.tokenManager.initializeOAuth(
+                                this.settings.oauthClientId,
+                                this.settings.oauthRedirectUri,
+                                this.settings.oauthClientSecret || undefined
+                        );
+
+                        const authUrl = await this.tokenManager.authorize();
+                        if (!authUrl) {
+                                throw new Error('Authorization URL was not generated.');
+                        }
+
+                        window.open(authUrl, '_blank', 'noopener');
+                        new Notice('DriveLink: Complete Google consent in your browser, then return to Obsidian.');
+                } catch (error) {
+                        console.error('DriveLink: Failed to initiate OAuth flow', error);
+                        if (error instanceof Error) {
+                                new Notice(`DriveLink: ${error.message}`);
+                        } else {
+                                new Notice('DriveLink: Unable to start Google authorization.');
+                        }
+                        throw error;
+                }
+        }
 
         async setupDriveFolder() {
                 try {

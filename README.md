@@ -21,12 +21,13 @@ This is a private plugin not available in the Community Plugins catalog. Install
 1. **Google Cloud Setup**:
    - Create a [Google Cloud Project](https://console.cloud.google.com/)
    - Enable the Google Drive API
-   - Create OAuth 2.0 credentials that are compatible with the SimpleToken CLI
-   - Note the Client ID and Client Secret SimpleToken requires
+   - Create OAuth 2.0 credentials (Web application or Desktop app)
+   - Add `https://drivelink.deneblab.com/callback/drive/` as an authorized redirect URI (or host `callback/drive/index.html` yourself)
+   - Copy the generated Client ID (and Client Secret if provided)
 
-2. **SimpleToken CLI**:
-   - Run the SimpleToken CLI locally once during setup
-   - Provide the client details noted above when prompted
+2. **Optional: SimpleToken CLI**:
+   - If you prefer to provision tokens outside of Obsidian, run the SimpleToken CLI once during setup
+   - Provide the same Google OAuth client details noted above when prompted
    - Copy the generated JSON output for import into DriveLink
 
 ### Plugin Installation
@@ -44,11 +45,23 @@ This is a private plugin not available in the Community Plugins catalog. Install
 
 ## Configuration
 
-### 1. Generate tokens with SimpleToken
+### 1. Authenticate with Google Drive
+
+You can connect DriveLink in two ways:
+
+#### Option A: Built-in OAuth onboarding (recommended)
+
+1. Open **Settings → DriveLink → Authentication** inside Obsidian.
+2. Paste your Google OAuth **Client ID** (and optional **Client Secret** if one was issued).
+3. Ensure the **Redirect URI** is set to the hosted callback `https://drivelink.deneblab.com/callback/drive/` (or your own deployment of `callback/drive/index.html`).
+4. Click **Connect to Google Drive**. A browser window will open with Google consent.
+5. Approve access, then return to Obsidian. DriveLink will process the callback automatically and show a connected status.
+
+#### Option B: SimpleToken import
 
 1. Run the SimpleToken CLI outside of Obsidian and follow its prompts to authorize Google Drive access.
 2. After the browser flow completes, SimpleToken prints a JSON object containing your access and refresh tokens.
-3. Copy the entire JSON object, including braces and quotes.
+3. Copy the entire JSON object, including braces and quotes, then paste it into the **SimpleToken import** box in DriveLink settings.
 
 ### 2. Drive Folder Setup
 
@@ -69,6 +82,7 @@ Configure sync behavior:
 ### Manual Sync
 
 Use the Command Palette (`Ctrl/Cmd + P`) and run:
+- **"DriveLink: Connect to Google Drive"** - Launch the in-app OAuth consent flow
 - **"DriveLink: Sync now"** - Perform complete synchronization
 - **"DriveLink: Set up Drive folder"** - Configure or change sync folder
 
@@ -113,9 +127,8 @@ Supported file types for sync:
 ### Common Issues
 
 **"Connection failed"**
-- Confirm you pasted the full SimpleToken JSON output, including the refresh token
-- Ensure the SimpleToken CLI completed successfully without errors
-- Re-run SimpleToken to generate a fresh token set if the existing tokens have expired or been revoked
+- For built-in OAuth: verify your Client ID/Secret, ensure the redirect URI matches `https://drivelink.deneblab.com/callback/drive/`, and confirm the Drive API is enabled for your project.
+- For SimpleToken imports: make sure you pasted the full JSON output (including the refresh token) and re-run the CLI if the data has expired or been revoked.
 
 **"Sync failed"**
 - Check your internet connection
