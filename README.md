@@ -21,13 +21,14 @@ This is a private plugin not available in the Community Plugins catalog. Install
 1. **Google Cloud Setup**:
    - Create a [Google Cloud Project](https://console.cloud.google.com/)
    - Enable the Google Drive API
-   - Create OAuth 2.0 credentials (Web application type)
-   - Note your Client ID
+   - Create OAuth 2.0 credentials (Web application or Desktop app)
+   - Add `https://drivelink.deneblab.com/callback/drive/` as an authorized redirect URI (or host `callback/drive/index.html` yourself)
+   - Copy the generated Client ID (and Client Secret if provided)
 
-2. **Callback Page Hosting**:
-   - Deploy the `callback/drive/index.html` file to a static hosting service
-   - GitHub Pages, Cloudflare Pages, or similar
-   - Note the callback URL (e.g., `https://yourdomain.github.io/callback/drive/`)
+2. **Optional: SimpleToken CLI**:
+   - If you prefer to provision tokens outside of Obsidian, run the SimpleToken CLI once during setup
+   - Provide the same Google OAuth client details noted above when prompted
+   - Copy the generated JSON output for import into DriveLink
 
 ### Plugin Installation
 
@@ -44,13 +45,23 @@ This is a private plugin not available in the Community Plugins catalog. Install
 
 ## Configuration
 
-### 1. Google OAuth Setup
+### 1. Authenticate with Google Drive
 
-1. Open DriveLink settings in Obsidian
-2. Enter your **Google OAuth Client ID**
-3. Set your **OAuth Redirect URI** (your deployed callback page URL)
-4. Click **"Connect to Google Drive"**
-5. Complete the OAuth flow in your browser
+You can connect DriveLink in two ways:
+
+#### Option A: Built-in OAuth onboarding (recommended)
+
+1. Open **Settings → DriveLink → Authentication** inside Obsidian.
+2. Paste your Google OAuth **Client ID** (and optional **Client Secret** if one was issued).
+3. Ensure the **Redirect URI** is set to the hosted callback `https://drivelink.deneblab.com/callback/drive/` (or your own deployment of `callback/drive/index.html`).
+4. Click **Connect to Google Drive**. A browser window will open with Google consent.
+5. Approve access, then return to Obsidian. DriveLink will process the callback automatically and show a connected status.
+
+#### Option B: SimpleToken import
+
+1. Run the SimpleToken CLI outside of Obsidian and follow its prompts to authorize Google Drive access.
+2. After the browser flow completes, SimpleToken prints a JSON object containing your access and refresh tokens.
+3. Copy the entire JSON object, including braces and quotes, then paste it into the **SimpleToken import** box in DriveLink settings.
 
 ### 2. Drive Folder Setup
 
@@ -71,8 +82,8 @@ Configure sync behavior:
 ### Manual Sync
 
 Use the Command Palette (`Ctrl/Cmd + P`) and run:
+- **"DriveLink: Connect to Google Drive"** - Launch the in-app OAuth consent flow
 - **"DriveLink: Sync now"** - Perform complete synchronization
-- **"DriveLink: Connect to Google Drive"** - Re-authenticate if needed
 - **"DriveLink: Set up Drive folder"** - Configure or change sync folder
 
 ### File Sync Process
@@ -116,19 +127,13 @@ Supported file types for sync:
 ### Common Issues
 
 **"Connection failed"**
-- Verify your Client ID is correct
-- Check that the redirect URI matches your deployed callback page
-- Ensure Google Drive API is enabled in your Google Cloud project
+- For built-in OAuth: verify your Client ID/Secret, ensure the redirect URI matches `https://drivelink.deneblab.com/callback/drive/`, and confirm the Drive API is enabled for your project.
+- For SimpleToken imports: make sure you pasted the full JSON output (including the refresh token) and re-run the CLI if the data has expired or been revoked.
 
 **"Sync failed"**
 - Check your internet connection
 - Verify you have sufficient Google Drive storage
 - Try disconnecting and reconnecting to Google Drive
-
-**"Callback page not loading"**
-- Ensure the callback page is properly deployed and accessible
-- Check that the URL in settings matches exactly (including `https://`)
-- Try opening the callback URL directly in your browser
 
 **"Files not syncing"**
 - Check ignore patterns in settings
