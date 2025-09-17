@@ -53,6 +53,7 @@ export const DEFAULT_SETTINGS: DriveLinkSettings = {
  */
 export class DriveLinkSettingTab extends PluginSettingTab {
     plugin: DriveLinkPlugin;
+    private connectionStatusContainer: HTMLElement | null = null;
 
     constructor(app: App, plugin: DriveLinkPlugin) {
         super(app, plugin);
@@ -62,6 +63,7 @@ export class DriveLinkSettingTab extends PluginSettingTab {
     display(): void {
         const { containerEl } = this;
         containerEl.empty();
+        this.connectionStatusContainer = null;
 
         // Add custom CSS class for styling
         containerEl.addClass('drivelink-settings');
@@ -89,18 +91,23 @@ export class DriveLinkSettingTab extends PluginSettingTab {
     private addAuthenticationSection(containerEl: HTMLElement): void {
         containerEl.createEl('h3', { text: 'Authentication' });
 
-        // Description
-        const descEl = containerEl.createEl('p', {
+        containerEl.createEl('p', {
             cls: 'setting-item-description',
-            text: 'Paste SimpleToken CLI generated tokens here.'
+            text: 'DriveLink relies on tokens generated with the SimpleToken CLI. Run the CLI during initial setup and paste the resulting JSON output below to connect.'
         });
-        descEl.style.marginBottom = '4px';
+
+        // Connection Status and Actions
+        this.connectionStatusContainer = containerEl.createDiv();
+        this.renderConnectionStatus(this.connectionStatusContainer);
+
+        containerEl.createEl('h4', { text: 'Import tokens from SimpleToken' });
+        containerEl.createEl('p', {
+            cls: 'setting-item-description',
+            text: 'Paste the full JSON output from the SimpleToken CLI to authorize DriveLink. You only need to run SimpleToken once for the initial setup.'
+        });
 
         // Token import area
         this.addTokenImport(containerEl);
-
-        // Connection Status and Actions
-        this.addConnectionStatus(containerEl);
     }
 
 
@@ -148,7 +155,7 @@ export class DriveLinkSettingTab extends PluginSettingTab {
                 const success = await this.plugin.tokenManager.importSimpleTokenData(tokenData);
                 if (success) {
                     textareaEl.value = ''; // Clear the input
-                    this.display(); // Refresh the settings tab
+                    this.refreshConnectionStatus();
                     // Could show success notice here
                 } else {
                     // Could show error notice here
@@ -165,63 +172,62 @@ export class DriveLinkSettingTab extends PluginSettingTab {
         });
     }
 
-    private async addConnectionStatus(containerEl: HTMLElement): Promise<void> {
-        const statusContainer = containerEl.createDiv({ cls: 'drivelink-connection-status' });
+    private renderConnectionStatus(containerEl: HTMLElement): void {
+        containerEl.empty();
+        containerEl.addClass('drivelink-connection-status');
 
-        // Get current connection status
-        const tokenStatus = await this.plugin.tokenManager.getTokenStatus();
-
-        // Status display
-        const statusEl = statusContainer.createDiv({ cls: 'drivelink-status-row' });
+        const statusEl = containerEl.createDiv({ cls: 'drivelink-status-row' });
         statusEl.createSpan({ text: 'Connection Status: ' });
 
-        const statusBadge = statusEl.createSpan({
-            cls: `drivelink-status ${tokenStatus.connected ? 'connected' : 'disconnected'}`,
-            text: tokenStatus.connected ? 'Connected' : 'Disconnected'
-        });
-
-        // Show token source
-        if (tokenStatus.connected && tokenStatus.source !== 'none') {
-            const sourceText = tokenStatus.source === 'simple_token'
-                ? '(via SimpleToken CLI)'
-                : '(manual OAuth)';
+        void (async () => {
+            const tokenStatus = await this.plugin.tokenManager.getTokenStatus();
             statusEl.createSpan({
-                text: ` ${sourceText}`,
-                cls: 'drivelink-token-source'
-            }).style.color = 'var(--text-muted)';
-        }
-
-        if (tokenStatus.connected && tokenStatus.expiresAt) {
-            const expiryDate = new Date(tokenStatus.expiresAt);
-            statusContainer.createDiv({
-                text: `Token expires: ${expiryDate.toLocaleString()}`,
-                cls: 'drivelink-token-expiry'
-            });
-        }
-
-
-        // Action buttons
-        const actionsEl = statusContainer.createDiv({ cls: 'drivelink-actions' });
-
-        if (tokenStatus.connected) {
-            // Disconnect button
-            actionsEl.createEl('button', {
-                text: 'Disconnect',
-                cls: 'drivelink-button'
-            }).addEventListener('click', async () => {
-                await this.plugin.tokenManager.disconnect();
-                this.display(); // Refresh the settings tab
-            });
-        } else {
-            // Connect button
-            const connectBtn = actionsEl.createEl('button', {
-                text: 'Connect to Google Drive',
-                cls: 'drivelink-button'
+                cls: `drivelink-status ${tokenStatus.connected ? 'connected' : 'disconnected'}`,
+                text: tokenStatus.connected ? 'Connected' : 'Disconnected'
             });
 
-            connectBtn.disabled = true;
-            connectBtn.title = 'Paste tokens above to connect';
+            if (tokenStatus.connected && tokenStatus.source === 'simple_token') {
+                statusEl.createSpan({
+                    text: ' (via SimpleToken CLI)',
+                    cls: 'drivelink-token-source'
+                }).style.color = 'var(--text-muted)';
+            }
+
+            if (tokenStatus.connected && tokenStatus.expiresAt) {
+                const expiryDate = new Date(tokenStatus.expiresAt);
+                containerEl.createDiv({
+                    text: `Token expires: ${expiryDate.toLocaleString()}`,
+                    cls: 'drivelink-token-expiry'
+                });
+            }
+
+            const actionsEl = containerEl.createDiv({ cls: 'drivelink-actions' });
+
+            if (tokenStatus.connected) {
+                actionsEl.createEl('button', {
+                    text: 'Disconnect',
+                    cls: 'drivelink-button'
+                }).addEventListener('click', async () => {
+                    await this.plugin.tokenManager.disconnect();
+                    this.refreshConnectionStatus();
+                });
+            } else {
+                actionsEl.createDiv({
+                    text: 'Import SimpleToken JSON to establish a connection.',
+                    cls: 'drivelink-token-hint'
+                });
+            }
+        })();
+    }
+
+    private refreshConnectionStatus(): void {
+        if (this.connectionStatusContainer) {
+            this.renderConnectionStatus(this.connectionStatusContainer);
         }
+    }
+
+    public handleTokenStatusChange(): void {
+        this.refreshConnectionStatus();
     }
 
     private addDriveSection(containerEl: HTMLElement): void {

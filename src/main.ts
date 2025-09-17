@@ -1,4 +1,4 @@
-import { Notice, Plugin } from 'obsidian';
+import { Plugin } from 'obsidian';
 import { DriveLinkSettings, DEFAULT_SETTINGS, DriveLinkSettingTab } from './settings';
 import { TokenManager } from './auth/token-manager';
 import { DriveClient } from './drive/client';
@@ -6,38 +6,37 @@ import { SyncEngine } from './sync/sync-engine';
 import { Logger, LogLevel } from './utils/logger';
 
 export default class DriveLinkPlugin extends Plugin {
-	settings: DriveLinkSettings;
-	tokenManager: TokenManager;
-	driveClient: DriveClient;
-	syncEngine: SyncEngine;
+        settings: DriveLinkSettings;
+        tokenManager: TokenManager;
+        driveClient: DriveClient;
+        syncEngine: SyncEngine;
+        private settingsTab?: DriveLinkSettingTab;
 
 	
 	
-	async onload() {
-		await this.loadSettings();
+        async onload() {
+                await this.loadSettings();
 
-		// Initialize logging system
-		console.log('DriveLink: Setting log level to', this.settings.debugLevel, '(', Object.keys(LogLevel)[this.settings.debugLevel], ')');
-		Logger.setLevel(this.settings.debugLevel);
-		const logger = Logger.createComponentLogger('Main');
-		logger.info('DriveLink plugin loading...');
+                // Initialize logging system
+                console.log('DriveLink: Setting log level to', this.settings.debugLevel, '(', Object.keys(LogLevel)[this.settings.debugLevel], ')');
+                Logger.setLevel(this.settings.debugLevel);
+                const logger = Logger.createComponentLogger('Main');
+                logger.info('DriveLink plugin loading...');
 
-		// Initialize core components
-		this.tokenManager = new TokenManager(this);
-		this.driveClient = new DriveClient(this.tokenManager);
-		this.syncEngine = new SyncEngine(this.app, this.driveClient, this.settings, this);
+                // Initialize core components
+                this.tokenManager = new TokenManager(this);
+                this.driveClient = new DriveClient(this.tokenManager);
+                this.syncEngine = new SyncEngine(this.app, this.driveClient, this.settings, this);
 
-		// Note: OAuth is handled entirely by SimpleToken CLI
-		// No need to initialize OAuth manager in SimpleToken-only mode
+                // Initialize sync engine (index, change detection)
+                await this.syncEngine.initialize();
 
-		// Initialize sync engine (index, change detection)
-		await this.syncEngine.initialize();
+                // Add settings tab
+                this.settingsTab = new DriveLinkSettingTab(this.app, this);
+                this.addSettingTab(this.settingsTab);
 
-		// Add settings tab
-		this.addSettingTab(new DriveLinkSettingTab(this.app, this));
-
-		// Add commands
-		// Note: Connection is handled via SimpleToken CLI, no manual connect command needed
+                // Add commands
+                // Authentication is managed through the settings tab, so no dedicated connect command is required
 
 		this.addCommand({
 			id: 'setup-drive-folder',
@@ -57,37 +56,13 @@ export default class DriveLinkPlugin extends Plugin {
 			callback: () => this.resetChangeDetection()
 		});
 
-		// Register obsidian protocol handler for OAuth callback
-		this.registerObsidianProtocolHandler('plugin-drivelink', async (params) => {
-			try {
-				const { code, state, error, error_description } = params as Record<string, string>;
-				if (error) {
-					new Notice(`DriveLink auth error: ${error_description || error}`);
-					return;
-				}
+                // Optional: sync on startup if enabled
+                if (this.settings.syncOnStartup) {
+                        this.syncNow();
+                }
 
-				if (!code || !state) {
-					new Notice('DriveLink: Missing code/state in callback');
-					return;
-				}
-
-				// Reconstruct the callback URL for parser
-				const callbackUrl = `obsidian://plugin-drivelink/callback?code=${encodeURIComponent(code)}&state=${encodeURIComponent(state)}`;
-				await this.tokenManager.handleCallback(callbackUrl);
-				new Notice('DriveLink: Connected to Google Drive');
-			} catch (e) {
-				console.error('DriveLink OAuth callback failed:', e);
-				new Notice('DriveLink: Authorization failed');
-			}
-		});
-
-		// Optional: sync on startup if enabled
-		if (this.settings.syncOnStartup) {
-			this.syncNow();
-		}
-
-		console.log('DriveLink plugin loaded');
-	}
+                console.log('DriveLink plugin loaded');
+        }
 
 	onunload() {
 		console.log('DriveLink plugin unloaded');
@@ -101,17 +76,11 @@ export default class DriveLinkPlugin extends Plugin {
 		await this.saveData(this.settings);
 	}
 
-	// Note: Connection is now handled entirely by SimpleToken CLI
-	// This method is kept for compatibility but does nothing in SimpleToken-only mode
-	async connectToDrive() {
-		console.log('Drive connection is managed by SimpleToken CLI');
-	}
-
-	async setupDriveFolder() {
-		try {
-			if (!await this.tokenManager.hasValidToken()) {
-				throw new Error('No valid tokens found. Please set up SimpleToken CLI first.');
-			}
+        async setupDriveFolder() {
+                try {
+                        if (!await this.tokenManager.hasValidToken()) {
+                                throw new Error('No valid tokens found. Connect to Google Drive first.');
+                        }
 
 			// If a folder ID is already set in settings, validate it
 			if (this.settings.driveFolderId) {

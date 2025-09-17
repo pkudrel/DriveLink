@@ -21,13 +21,13 @@ This is a private plugin not available in the Community Plugins catalog. Install
 1. **Google Cloud Setup**:
    - Create a [Google Cloud Project](https://console.cloud.google.com/)
    - Enable the Google Drive API
-   - Create OAuth 2.0 credentials (Web application type)
-   - Note your Client ID
+   - Create OAuth 2.0 credentials that are compatible with the SimpleToken CLI
+   - Note the Client ID and Client Secret SimpleToken requires
 
-2. **Callback Page Hosting**:
-   - Deploy the `callback/drive/index.html` file to a static hosting service
-   - GitHub Pages, Cloudflare Pages, or similar
-   - Note the callback URL (e.g., `https://yourdomain.github.io/callback/drive/`)
+2. **SimpleToken CLI**:
+   - Run the SimpleToken CLI locally once during setup
+   - Provide the client details noted above when prompted
+   - Copy the generated JSON output for import into DriveLink
 
 ### Plugin Installation
 
@@ -44,13 +44,11 @@ This is a private plugin not available in the Community Plugins catalog. Install
 
 ## Configuration
 
-### 1. Google OAuth Setup
+### 1. Generate tokens with SimpleToken
 
-1. Open DriveLink settings in Obsidian
-2. Enter your **Google OAuth Client ID**
-3. Set your **OAuth Redirect URI** (your deployed callback page URL)
-4. Click **"Connect to Google Drive"**
-5. Complete the OAuth flow in your browser
+1. Run the SimpleToken CLI outside of Obsidian and follow its prompts to authorize Google Drive access.
+2. After the browser flow completes, SimpleToken prints a JSON object containing your access and refresh tokens.
+3. Copy the entire JSON object, including braces and quotes.
 
 ### 2. Drive Folder Setup
 
@@ -72,7 +70,6 @@ Configure sync behavior:
 
 Use the Command Palette (`Ctrl/Cmd + P`) and run:
 - **"DriveLink: Sync now"** - Perform complete synchronization
-- **"DriveLink: Connect to Google Drive"** - Re-authenticate if needed
 - **"DriveLink: Set up Drive folder"** - Configure or change sync folder
 
 ### File Sync Process
@@ -116,19 +113,14 @@ Supported file types for sync:
 ### Common Issues
 
 **"Connection failed"**
-- Verify your Client ID is correct
-- Check that the redirect URI matches your deployed callback page
-- Ensure Google Drive API is enabled in your Google Cloud project
+- Confirm you pasted the full SimpleToken JSON output, including the refresh token
+- Ensure the SimpleToken CLI completed successfully without errors
+- Re-run SimpleToken to generate a fresh token set if the existing tokens have expired or been revoked
 
 **"Sync failed"**
 - Check your internet connection
 - Verify you have sufficient Google Drive storage
 - Try disconnecting and reconnecting to Google Drive
-
-**"Callback page not loading"**
-- Ensure the callback page is properly deployed and accessible
-- Check that the URL in settings matches exactly (including `https://`)
-- Try opening the callback URL directly in your browser
 
 **"Files not syncing"**
 - Check ignore patterns in settings
