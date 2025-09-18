@@ -186,20 +186,7 @@ export class DriveLinkSettingTab extends PluginSettingTab {
                 text: tokenStatus.connected ? 'Connected' : 'Disconnected'
             });
 
-            if (tokenStatus.connected) {
-                statusEl.createSpan({
-                    text: ' (via SimpleToken CLI)',
-                    cls: 'drivelink-token-source'
-                }).style.color = 'var(--text-muted)';
-            }
 
-            if (tokenStatus.connected && tokenStatus.expiresAt) {
-                const expiryDate = new Date(tokenStatus.expiresAt);
-                containerEl.createDiv({
-                    text: `Token expires: ${expiryDate.toLocaleString()}`,
-                    cls: 'drivelink-token-expiry'
-                });
-            }
 
             const actionsEl = containerEl.createDiv({ cls: 'drivelink-actions' });
 
@@ -431,16 +418,6 @@ export class DriveLinkSettingTab extends PluginSettingTab {
                 .setName('Allowed file extensions')
                 .setDesc('Enter file extensions without the dot (one per line). Examples: md, pdf, txt, png');
 
-            // Create description with examples below the setting
-            const extensionDesc = containerEl.createDiv();
-            extensionDesc.innerHTML = `
-                <ul style="margin-top: 8px; margin-bottom: 8px;">
-                    <li><code>md</code> - Markdown files</li>
-                    <li><code>pdf</code> - PDF documents</li>
-                    <li><code>txt</code> - Text files</li>
-                    <li><code>png</code> - PNG images</li>
-                </ul>
-            `;
 
             // Create textarea below the description
             const textareaEl = containerEl.createEl('textarea', {
