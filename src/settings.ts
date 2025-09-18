@@ -376,29 +376,38 @@ export class DriveLinkSettingTab extends PluginSettingTab {
         this.addExtensionFilteringSection(containerEl);
 
         // Ignore patterns
+        // Create setting for the name and description only
+        new Setting(containerEl)
+            .setName('Ignore patterns')
+            .setDesc('File patterns to ignore during sync (one per line). Supports glob patterns:');
+
+        // Create description with examples below the setting
         const ignoreDesc = containerEl.createDiv();
         ignoreDesc.innerHTML = `
-            <p>File patterns to ignore during sync (one per line). Supports glob patterns:</p>
-            <ul>
+            <ul style="margin-top: 8px; margin-bottom: 8px;">
                 <li><code>.obsidian/**</code> - Ignore all Obsidian config files</li>
                 <li><code>*.tmp</code> - Ignore temporary files</li>
                 <li><code>private/**</code> - Ignore a specific folder</li>
             </ul>
         `;
 
-        new Setting(containerEl)
-            .setName('Ignore patterns')
-            .setDesc('')
-            .addTextArea(text => text
-                .setPlaceholder('Enter ignore patterns, one per line')
-                .setValue(this.plugin.settings.ignoreGlobs.join('\n'))
-                .onChange(async (value) => {
-                    this.plugin.settings.ignoreGlobs = value
-                        .split('\n')
-                        .map(line => line.trim())
-                        .filter(line => line.length > 0);
-                    await this.plugin.saveSettings();
-                }));
+        // Create textarea below the description
+        const ignoreTextareaEl = containerEl.createEl('textarea', {
+            cls: 'drivelink-ignore-textarea'
+        });
+        ignoreTextareaEl.placeholder = 'Enter ignore patterns, one per line';
+        ignoreTextareaEl.rows = 4;
+        ignoreTextareaEl.style.width = '100%';
+        ignoreTextareaEl.style.marginTop = '8px';
+        ignoreTextareaEl.value = this.plugin.settings.ignoreGlobs.join('\n');
+
+        ignoreTextareaEl.addEventListener('input', async () => {
+            this.plugin.settings.ignoreGlobs = ignoreTextareaEl.value
+                .split('\n')
+                .map(line => line.trim())
+                .filter(line => line.length > 0);
+            await this.plugin.saveSettings();
+        });
     }
 
     private addExtensionFilteringSection(containerEl: HTMLElement): void {
@@ -414,23 +423,18 @@ export class DriveLinkSettingTab extends PluginSettingTab {
                     this.display(); // Refresh to show/hide extension list
                 }));
 
-        // Allow folders setting
-        new Setting(containerEl)
-            .setName('Allow folders')
-            .setDesc('Include folders in synchronization. When enabled, folders will be synced regardless of extension filtering.')
-            .addToggle(toggle => toggle
-                .setValue(this.plugin.settings.allowFolders)
-                .onChange(async (value) => {
-                    this.plugin.settings.allowFolders = value;
-                    await this.plugin.saveSettings();
-                }));
 
         // Extension list (only show when filtering is enabled)
         if (this.plugin.settings.enableExtensionFiltering) {
+            // Create setting for the name and description only
+            new Setting(containerEl)
+                .setName('Allowed file extensions')
+                .setDesc('Enter file extensions without the dot (one per line). Examples: md, pdf, txt, png');
+
+            // Create description with examples below the setting
             const extensionDesc = containerEl.createDiv();
             extensionDesc.innerHTML = `
-                <p>File extensions to sync (one per line, without the dot):</p>
-                <ul>
+                <ul style="margin-top: 8px; margin-bottom: 8px;">
                     <li><code>md</code> - Markdown files</li>
                     <li><code>pdf</code> - PDF documents</li>
                     <li><code>txt</code> - Text files</li>
@@ -438,20 +442,24 @@ export class DriveLinkSettingTab extends PluginSettingTab {
                 </ul>
             `;
 
-            new Setting(containerEl)
-                .setName('Allowed file extensions')
-                .setDesc('Enter file extensions without the dot (e.g., "md", "pdf", "txt")')
-                .addTextArea(text => text
-                    .setPlaceholder('md\npdf\ntxt\npng\njpeg')
-                    .setValue(this.plugin.settings.allowedFileExtensions.join('\n'))
-                    .onChange(async (value) => {
-                        this.plugin.settings.allowedFileExtensions = value
-                            .split('\n')
-                            .map(line => line.trim().toLowerCase())
-                            .filter(line => line.length > 0)
-                            .filter(line => /^[a-zA-Z0-9]+$/.test(line)); // Only allow alphanumeric extensions
-                        await this.plugin.saveSettings();
-                    }));
+            // Create textarea below the description
+            const textareaEl = containerEl.createEl('textarea', {
+                cls: 'drivelink-extensions-textarea'
+            });
+            textareaEl.placeholder = 'md\npdf\ntxt\npng\njpeg';
+            textareaEl.rows = 4;
+            textareaEl.style.width = '100%';
+            textareaEl.style.marginTop = '8px';
+            textareaEl.value = this.plugin.settings.allowedFileExtensions.join('\n');
+
+            textareaEl.addEventListener('input', async () => {
+                this.plugin.settings.allowedFileExtensions = textareaEl.value
+                    .split('\n')
+                    .map(line => line.trim().toLowerCase())
+                    .filter(line => line.length > 0)
+                    .filter(line => /^[a-zA-Z0-9]+$/.test(line)); // Only allow alphanumeric extensions
+                await this.plugin.saveSettings();
+            });
 
             // Show current extensions count
             const currentExtensions = this.plugin.settings.allowedFileExtensions;
