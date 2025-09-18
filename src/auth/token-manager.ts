@@ -1,5 +1,4 @@
 import { Plugin } from 'obsidian';
-import { OAuthManager } from './oauth';
 import { Logger } from '../utils/logger';
 
 /**
@@ -11,7 +10,7 @@ interface TokenData {
     expiresAt: number;
     tokenType: string;
     scope: string;
-    source?: 'manual' | 'simple_token'; // Track token source for persistence
+    source?: 'simple_token'; // Track token source for persistence
     clientId?: string; // OAuth client ID for token refresh
     clientSecret?: string; // OAuth client secret for token refresh
     redirectUri?: string; // Redirect URI used during authorization
@@ -23,100 +22,18 @@ interface TokenData {
 const TOKEN_STORAGE_KEY = 'drivelink-tokens';
 
 /**
- * Manages OAuth tokens for Google Drive API access
- * Supports both manual OAuth flow and SimpleToken CLI integration
+ * Manages tokens for Google Drive API access
+ * Supports SimpleToken CLI integration only
  */
 export class TokenManager {
     private plugin: Plugin;
-    private oauthManager: OAuthManager | null = null;
     private tokens: TokenData | null = null;
-    private useSimpleToken: boolean = false;
     private logger = Logger.createComponentLogger('TokenManager');
-    private clientId: string | null = null;
-    private clientSecret: string | null = null;
-    private redirectUri: string | null = null;
 
     constructor(plugin: Plugin) {
         this.plugin = plugin;
     }
 
-    /**
-     * Initialize OAuth manager with client configuration
-     */
-    initializeOAuth(clientId: string, redirectUri: string, clientSecret?: string): void {
-        this.clientId = clientId;
-        this.clientSecret = clientSecret ?? null;
-        this.redirectUri = redirectUri;
-        this.oauthManager = new OAuthManager(clientId, redirectUri);
-    }
-
-    clearOAuthConfiguration(): void {
-        this.oauthManager = null;
-        this.clientId = null;
-        this.clientSecret = null;
-        this.redirectUri = null;
-    }
-
-    /**
-     * Start OAuth authorization flow
-     */
-    async authorize(): Promise<string> {
-        if (!this.oauthManager) {
-            throw new Error('OAuth manager not initialized. Set client ID first.');
-        }
-
-        try {
-            // Start the OAuth flow
-            const authUrl = await this.oauthManager.startAuthFlow();
-            console.log('Authorization URL:', authUrl);
-
-            // Note: The actual authorization completion will be handled via
-            // the protocol handler in the main plugin when the callback is received
-            return authUrl;
-        } catch (error) {
-            const message = error instanceof Error ? error.message : 'Unknown error';
-            throw new Error(`Authorization failed: ${message}`);
-        }
-    }
-
-    /**
-     * Handle OAuth callback and complete token exchange
-     */
-    async handleCallback(callbackUrl: string): Promise<void> {
-        if (!this.oauthManager) {
-            throw new Error('OAuth manager not initialized');
-        }
-
-        try {
-            // Parse the callback URL
-            const { code, state } = this.oauthManager.parseCallbackUrl(callbackUrl);
-
-            // Exchange code for tokens
-            const tokenResponse = await this.oauthManager.exchangeCodeForTokens(code, state);
-
-            // Store tokens
-            const tokenData: TokenData = {
-                accessToken: tokenResponse.access_token,
-                refreshToken: tokenResponse.refresh_token,
-                expiresAt: Date.now() + (tokenResponse.expires_in * 1000),
-                tokenType: tokenResponse.token_type,
-                scope: tokenResponse.scope,
-                source: 'manual',
-                clientId: this.clientId || undefined,
-                clientSecret: this.clientSecret || undefined,
-                redirectUri: this.redirectUri || undefined
-            };
-
-            await this.storeTokens(tokenData);
-            this.tokens = tokenData;
-            this.useSimpleToken = false; // Manual OAuth flow
-
-            console.log('OAuth tokens received and stored successfully');
-        } catch (error) {
-            const message = error instanceof Error ? error.message : 'Unknown error';
-            throw new Error(`Callback handling failed: ${message}`);
-        }
-    }
 
 
     /**
@@ -167,10 +84,6 @@ export class TokenManager {
             // Store tokens
             await this.storeTokens(internalTokenData);
             this.tokens = internalTokenData;
-            this.useSimpleToken = true;
-            this.clientId = internalTokenData.clientId ?? null;
-            this.clientSecret = internalTokenData.clientSecret ?? null;
-            this.redirectUri = internalTokenData.redirectUri ?? null;
 
             this.logger.info('Successfully imported SimpleToken data', {
                 expiresAt: new Date(internalTokenData.expiresAt).toISOString(),
@@ -248,15 +161,8 @@ export class TokenManager {
         this.logger.info('Refreshing access token using stored refresh token');
 
         try {
-            let tokenResponse;
-
-            if (this.oauthManager) {
-                // Use OAuth manager if available (manual OAuth flow)
-                tokenResponse = await this.oauthManager.refreshAccessToken(this.tokens.refreshToken);
-            } else {
-                // Direct refresh using Google OAuth endpoint (SimpleToken flow)
-                tokenResponse = await this.refreshTokenDirect(this.tokens.refreshToken);
-            }
+            // Direct refresh using Google OAuth endpoint
+            const tokenResponse = await this.refreshTokenDirect(this.tokens.refreshToken);
 
             // Update stored tokens
             this.tokens.accessToken = tokenResponse.access_token;
@@ -269,7 +175,6 @@ export class TokenManager {
 
             await this.storeTokens(this.tokens);
             this.logger.info('Access token refreshed successfully', {
-                method: this.oauthManager ? 'oauth-manager' : 'direct-refresh',
                 newExpiresAt: new Date(this.tokens.expiresAt).toISOString()
             });
         } catch (error) {
@@ -342,36 +247,18 @@ export class TokenManager {
 
             this.tokens = pluginData[TOKEN_STORAGE_KEY] || null;
 
-            // Restore the useSimpleToken flag from stored source
-            if (this.tokens && this.tokens.source === 'simple_token') {
-                this.useSimpleToken = true;
-            } else {
-                this.useSimpleToken = false;
-            }
-
-            if (this.tokens) {
-                this.clientId = this.tokens.clientId ?? this.clientId;
-                this.clientSecret = this.tokens.clientSecret ?? this.clientSecret;
-                this.redirectUri = this.tokens.redirectUri ?? this.redirectUri;
-
-                if (!this.oauthManager && this.clientId && this.redirectUri) {
-                    this.oauthManager = new OAuthManager(this.clientId, this.redirectUri);
-                }
-            }
 
             this.logger.debug('Loaded tokens from storage', {
                 hasTokens: !!this.tokens,
                 tokenKeys: this.tokens ? Object.keys(this.tokens) : [],
                 hasAccessToken: !!(this.tokens?.accessToken),
                 expiresAt: this.tokens?.expiresAt ? new Date(this.tokens.expiresAt).toISOString() : 'none',
-                source: this.tokens?.source || 'unknown',
-                useSimpleToken: this.useSimpleToken
+                source: this.tokens?.source || 'unknown'
             });
         } catch (error) {
             this.logger.error('Failed to load tokens from storage', error as Error);
             console.error('Failed to load tokens:', error);
             this.tokens = null;
-            this.useSimpleToken = false;
         }
     }
 
@@ -384,10 +271,6 @@ export class TokenManager {
             delete pluginData[TOKEN_STORAGE_KEY];
             await this.plugin.saveData(pluginData);
             this.tokens = null;
-            this.useSimpleToken = false;
-            this.clientId = null;
-            this.clientSecret = null;
-            this.redirectUri = null;
             console.log('Tokens cleared');
         } catch (error) {
             console.error('Failed to clear tokens:', error);
@@ -400,7 +283,7 @@ export class TokenManager {
     async getTokenStatus(): Promise<{
         connected: boolean;
         expiresAt?: number;
-        source: 'manual' | 'simple_token' | 'none';
+        source: 'simple_token' | 'none';
     }> {
         // Load tokens from storage if not already loaded
         if (!this.tokens) {
@@ -410,7 +293,6 @@ export class TokenManager {
 
         this.logger.debug('getTokenStatus result', {
             hasTokens: !!this.tokens,
-            useSimpleToken: this.useSimpleToken,
             tokenSource: this.tokens?.source,
             expiresAt: this.tokens?.expiresAt ? new Date(this.tokens.expiresAt).toISOString() : 'none'
         });
@@ -426,7 +308,7 @@ export class TokenManager {
         return {
             connected: true,
             expiresAt: this.tokens.expiresAt,
-            source: this.useSimpleToken ? 'simple_token' : 'manual'
+            source: 'simple_token'
         };
     }
 
@@ -434,7 +316,7 @@ export class TokenManager {
      * Check if currently using SimpleToken integration
      */
     isUsingSimpleToken(): boolean {
-        return this.useSimpleToken;
+        return true; // Always true now since we only support SimpleToken
     }
 
     /**
@@ -442,7 +324,6 @@ export class TokenManager {
      */
     async disconnect(): Promise<void> {
         await this.clearTokens();
-        // Note: useSimpleToken flag is already reset in clearTokens()
         // Note: Could also call Google's revoke endpoint here if needed
         console.log('Disconnected from Google Drive');
     }
