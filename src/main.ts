@@ -14,20 +14,20 @@ export default class DriveLinkPlugin extends Plugin {
 
 	
 	
-	async onload() {
-		await this.loadSettings();
+        async onload() {
+                await this.loadSettings();
 
-		// Initialize logging system
-		console.log('DriveLink: Setting log level to', this.settings.debugLevel, '(', Object.keys(LogLevel)[this.settings.debugLevel], ')');
-		Logger.setLevel(this.settings.debugLevel);
-		const logger = Logger.createComponentLogger('Main');
-		logger.info('DriveLink plugin loading...');
+                // Initialize logging system
+                console.log('DriveLink: Setting log level to', this.settings.debugLevel, '(', Object.keys(LogLevel)[this.settings.debugLevel], ')');
+                Logger.setLevel(this.settings.debugLevel);
+                const logger = Logger.createComponentLogger('Main');
+                logger.info('DriveLink plugin loading...');
 
-		// Initialize core components
+                // Initialize core components
                 this.tokenManager = new TokenManager(this);
-                this.updateOAuthConfiguration();
                 this.driveClient = new DriveClient(this.tokenManager);
                 this.syncEngine = new SyncEngine(this.app, this.driveClient, this.settings, this);
+
 
                 // Initialize sync engine (index, change detection)
                 await this.syncEngine.initialize();
@@ -37,13 +37,12 @@ export default class DriveLinkPlugin extends Plugin {
                 this.addSettingTab(this.settingsTab);
 
                 // Add commands
-                // Authentication is managed through the settings tab, so no dedicated connect command is required
 
-		this.addCommand({
-			id: 'setup-drive-folder',
-			name: 'Set up Drive folder',
-			callback: () => this.setupDriveFolder()
-		});
+                this.addCommand({
+                        id: 'setup-drive-folder',
+                        name: 'Set up Drive folder',
+                        callback: () => this.setupDriveFolder()
+                });
 
 		this.addCommand({
 			id: 'sync-now',
@@ -57,38 +56,14 @@ export default class DriveLinkPlugin extends Plugin {
 			callback: () => this.resetChangeDetection()
 		});
 
-		// Register obsidian protocol handler for OAuth callback
-		this.registerObsidianProtocolHandler('plugin-drivelink', async (params) => {
-			try {
-				const { code, state, error, error_description } = params as Record<string, string>;
-				if (error) {
-					new Notice(`DriveLink auth error: ${error_description || error}`);
-					return;
-				}
 
-				if (!code || !state) {
-					new Notice('DriveLink: Missing code/state in callback');
-					return;
-				}
+                // Optional: sync on startup if enabled
+                if (this.settings.syncOnStartup) {
+                        this.syncNow();
+                }
 
-				// Reconstruct the callback URL for parser
-				const callbackUrl = `obsidian://plugin-drivelink/callback?code=${encodeURIComponent(code)}&state=${encodeURIComponent(state)}`;
-                                await this.tokenManager.handleCallback(callbackUrl);
-                                this.settingsTab?.handleTokenStatusChange();
-                                new Notice('DriveLink: Connected to Google Drive');
-			} catch (e) {
-				console.error('DriveLink OAuth callback failed:', e);
-				new Notice('DriveLink: Authorization failed');
-			}
-		});
-
-		// Optional: sync on startup if enabled
-		if (this.settings.syncOnStartup) {
-			this.syncNow();
-		}
-
-		console.log('DriveLink plugin loaded');
-	}
+                console.log('DriveLink plugin loaded');
+        }
 
 	onunload() {
 		console.log('DriveLink plugin unloaded');
@@ -98,43 +73,10 @@ export default class DriveLinkPlugin extends Plugin {
 		this.settings = Object.assign({}, DEFAULT_SETTINGS, await this.loadData());
 	}
 
-	async saveSettings() {
-		await this.saveData(this.settings);
-	}
-
-        async connectToDrive() {
-                const clientId = this.settings.oauthClientId?.trim();
-                const redirectUri = this.settings.oauthRedirectUri?.trim();
-                const clientSecret = this.settings.oauthClientSecret?.trim();
-
-                if (!clientId || !redirectUri) {
-                        new Notice('DriveLink: Enter OAuth client details before connecting.');
-                        return;
-                }
-
-                try {
-                        this.tokenManager.initializeOAuth(clientId, redirectUri, clientSecret || undefined);
-                        const authUrl = await this.tokenManager.authorize();
-                        new Notice('DriveLink: Check your browser to authorize access.');
-                        console.log('DriveLink authorization URL:', authUrl);
-                } catch (error) {
-                        console.error('DriveLink connectToDrive failed:', error);
-                        const message = error instanceof Error ? error.message : 'Unknown error';
-                        new Notice(`DriveLink: Failed to start OAuth (${message})`);
-                }
+        async saveSettings() {
+                await this.saveData(this.settings);
         }
 
-        updateOAuthConfiguration(): void {
-                const clientId = this.settings?.oauthClientId?.trim();
-                const redirectUri = this.settings?.oauthRedirectUri?.trim();
-                const clientSecret = this.settings?.oauthClientSecret?.trim();
-
-                if (clientId && redirectUri) {
-                        this.tokenManager.initializeOAuth(clientId, redirectUri, clientSecret || undefined);
-                } else {
-                        this.tokenManager.clearOAuthConfiguration();
-                }
-        }
 
         async setupDriveFolder() {
                 try {
