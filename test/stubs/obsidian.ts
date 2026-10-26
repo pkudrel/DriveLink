@@ -15,7 +15,15 @@ export class PluginSettingTab {
 export class Setting {
     constructor(_containerEl: unknown) {}
 }
-export const Platform = { isDesktop: true, isMobile: false };
+export class Modal {
+    app: App;
+    constructor(app: App) {
+        this.app = app;
+    }
+    open(): void {}
+    close(): void {}
+}
+export const Platform = { isDesktop: true, isMobile: false, isIosApp: false, isAndroidApp: false };
 
 /**
  * Plugin whose data.json lives in memory. loadData/saveData are async and

@@ -70,15 +70,8 @@ export class DriveClient {
         const accessToken = await this.tokenManager.getValidAccessToken();
         this.logger.debug('Retrieved access token for API request', {
             hasToken: !!accessToken,
-            tokenLength: accessToken?.length || 0,
-            tokenPrefix: accessToken?.substring(0, 20) + '...'
+            tokenLength: accessToken?.length || 0
         });
-
-        const headers: Record<string, string> = {
-            'Authorization': `Bearer ${accessToken?.substring(0, 20)}...`,
-            'Content-Type': 'application/json',
-            ...options.headers as Record<string, string>
-        };
 
         const response = await fetch(url, {
             ...options,
@@ -193,7 +186,7 @@ export class DriveClient {
      */
     async getFileMetadata(fileId: string): Promise<DriveFile> {
         const params = new URLSearchParams({
-            fields: 'id,name,mimeType,size,modifiedTime,parents,md5Checksum'
+            fields: 'id,name,mimeType,size,modifiedTime,parents,md5Checksum,trashed'
         });
 
         const response = await this.makeRequest(`/files/${fileId}?${params.toString()}`);

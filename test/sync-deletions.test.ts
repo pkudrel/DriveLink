@@ -109,3 +109,14 @@ test('timestamp fallback walks unchanged subfolders and deletes nothing', async 
     assert.ok(vault.files.has('notes/nested.md'), 'file in an unchanged subfolder must be downloaded');
     assert.deepEqual(vault.trashed, []);
 });
+
+test('each sync is logged between a start and an end marker', async () => {
+    const { engine, changeDetection } = await createSyncFixture(SYNCED);
+    changeDetection.result = { needsFullScan: false, changes: [], newPageToken: 'token-2' };
+
+    await engine.performSync();
+
+    const messages = Logger.getLastSyncEntries().map(e => e.message);
+    assert.match(messages[0], /^Sync started/);
+    assert.match(messages[messages.length - 1], /^Sync completed/);
+});

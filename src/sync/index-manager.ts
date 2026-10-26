@@ -2,6 +2,7 @@ import { TFile, TAbstractFile } from 'obsidian';
 import type DriveLinkPlugin from '../main';
 import { DriveFile } from '../drive/client';
 import { shouldSyncFile } from '../utils/extension-filter';
+import { Logger } from '../utils/logger';
 
 /**
  * data.json key holding the file index
@@ -68,6 +69,7 @@ export interface ChangeDetectionResult {
 export class IndexManager {
     private plugin: DriveLinkPlugin;
     private index: FileIndex;
+    private logger = Logger.createComponentLogger('IndexManager');
 
     constructor(plugin: DriveLinkPlugin) {
         this.plugin = plugin;
@@ -103,7 +105,7 @@ export class IndexManager {
                 this.index = { ...this.createEmptyIndex(), ...data[INDEX_STORAGE_KEY] };
             }
         } catch (error) {
-            console.error('Failed to load file index:', error);
+            this.logger.error('Failed to load file index', error as Error);
             this.index = this.createEmptyIndex();
         }
     }
@@ -119,7 +121,7 @@ export class IndexManager {
                 data[INDEX_STORAGE_KEY] = index;
             });
         } catch (error) {
-            console.error('Failed to save file index:', error);
+            this.logger.error('Failed to save file index', error as Error);
         }
     }
 

@@ -2,6 +2,8 @@
  * Centralized logging utility for DriveLink plugin debugging
  */
 
+import { redact } from './redact';
+
 export enum LogLevel {
     DEBUG = 0,
     INFO = 1,
@@ -17,9 +19,24 @@ export interface LogContext {
     [key: string]: any; // Allow any additional properties
 }
 
+/**
+ * Log entry kept in memory for the log window
+ */
+export interface LogEntry {
+    time: string; // ISO timestamp
+    level: LogLevel;
+    component: string;
+    message: string; // Already redacted, context included
+    syncId?: number; // Set for entries written during a sync
+}
+
 export class Logger {
     private static level: LogLevel = LogLevel.INFO;
     private static readonly PREFIX = '[DriveLink]';
+    private static readonly MAX_ENTRIES = 500;
+    private static entries: LogEntry[] = [];
+    private static currentSyncId: number | undefined;
+    private static lastSyncId = 0;
     private static readonly COLORS = {
         DEBUG: '#8B949E', // Gray
         INFO: '#58A6FF',  // Blue
@@ -87,6 +104,57 @@ export class Logger {
     }
 
     /**
+     * Mark the start of a sync; entries until endSync() belong to it.
+     * The marker is recorded regardless of the log level.
+     */
+    static startSync(message: string, context?: LogContext): void {
+        Logger.lastSyncId++;
+        Logger.currentSyncId = Logger.lastSyncId;
+        Logger.log(LogLevel.INFO, 'Sync', message, context);
+    }
+
+    /**
+     * Mark the end of the current sync (recorded regardless of the log level)
+     */
+    static endSync(message: string, context?: LogContext, failed = false): void {
+        Logger.log(failed ? LogLevel.ERROR : LogLevel.INFO, 'Sync', message, context);
+        Logger.currentSyncId = undefined;
+    }
+
+    /**
+     * All buffered entries, oldest first
+     */
+    static getEntries(): LogEntry[] {
+        return [...Logger.entries];
+    }
+
+    /**
+     * Entries of the most recent sync (still buffered), oldest first
+     */
+    static getLastSyncEntries(): LogEntry[] {
+        if (Logger.lastSyncId === 0) {
+            return [];
+        }
+        return Logger.entries.filter(entry => entry.syncId === Logger.lastSyncId);
+    }
+
+    /**
+     * Drop all buffered entries
+     */
+    static clearEntries(): void {
+        Logger.entries = [];
+    }
+
+    /**
+     * Format entries as plain text, one entry per line (context may span lines)
+     */
+    static formatEntries(entries: LogEntry[]): string {
+        return entries
+            .map(entry => `${entry.time} ${LogLevel[entry.level].padEnd(5)} [${entry.component}] ${entry.message}`)
+            .join('\n');
+    }
+
+    /**
      * Start timing an operation
      */
     static startTiming(operation: string): () => void {
@@ -140,12 +208,23 @@ export class Logger {
         const componentText = component.padEnd(12);
 
         const logPrefix = `${Logger.PREFIX} ${timestamp} ${levelText} [${componentText}]`;
-        const fullMessage = `${logPrefix} ${message}`;
 
-        // Format the complete log message with context
-        const logOutput = context && Object.keys(context).length > 0
-            ? `${fullMessage} ${JSON.stringify(context, null, 2)}`
-            : fullMessage;
+        // Message with context, without secrets; used for the console and the buffer
+        const body = redact(context && Object.keys(context).length > 0
+            ? `${message} ${JSON.stringify(context, null, 2)}`
+            : message);
+        const logOutput = `${logPrefix} ${body}`;
+
+        Logger.entries.push({
+            time: new Date().toISOString(),
+            level,
+            component,
+            message: body,
+            syncId: Logger.currentSyncId
+        });
+        if (Logger.entries.length > Logger.MAX_ENTRIES) {
+            Logger.entries.splice(0, Logger.entries.length - Logger.MAX_ENTRIES);
+        }
 
         // Use console methods but also force immediate output using multiple techniques
         switch (level) {

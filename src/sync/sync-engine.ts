@@ -112,7 +112,11 @@ export class SyncEngine {
         }
 
         this.isSyncing = true;
-        this.logger.info('Starting sync operation', { operation: 'performSync' });
+        Logger.startSync('Sync started', {
+            syncType: this.settings.syncType,
+            dryRun: !!options.dryRun,
+            lastSyncTime: this.settings.lastSyncTime
+        });
         const stats: SyncStats = {
             filesUploaded: 0,
             filesDownloaded: 0,
@@ -268,8 +272,24 @@ export class SyncEngine {
             };
         } finally {
             this.isSyncing = false;
-            this.logger.debug('Sync operation completed, releasing lock');
+            this.endSyncLog(stats);
+            await this.plugin.saveLastSyncLog();
         }
+    }
+
+    /**
+     * Close the sync section of the log with its outcome
+     */
+    private endSyncLog(stats: SyncStats): void {
+        const failed = stats.errors > 0;
+        Logger.endSync(failed ? `Sync failed with ${stats.errors} error(s)` : 'Sync completed', {
+            uploaded: stats.filesUploaded,
+            downloaded: stats.filesDownloaded,
+            deleted: stats.filesDeleted,
+            conflictsResolved: stats.conflictsResolved,
+            errors: stats.errors,
+            durationMs: Date.now() - stats.startTime
+        }, failed);
     }
 
     /**
@@ -383,38 +403,24 @@ export class SyncEngine {
 
         const allFiles = listing.files;
 
-        // Log all remote files found with detailed filtering analysis
         this.logger.info('Remote files discovery complete', {
             totalFiles: allFiles.length,
             strategy: syncStrategy,
             isComplete: listing.isComplete,
-            fileDetails: allFiles.map(f => ({
-                name: f.name,
+            removed: listing.removedIds?.length || 0
+        });
+        this.logger.debug('Remote files', {
+            filtering: {
+                extensionFiltering: this.settings.enableExtensionFiltering,
+                allowedExtensions: this.settings.allowedFileExtensions,
+                ignoreGlobs: this.settings.ignoreGlobs
+            },
+            files: allFiles.map(f => ({
                 path: f.path || f.name,
                 mimeType: f.mimeType,
                 size: f.size,
                 modifiedTime: f.modifiedTime
             }))
-        });
-
-        // Show filtering analysis for each file
-        console.log(`\n[SYNC DEBUG] Remote Files Filtering Analysis:`);
-        console.log(`Extension filtering enabled: ${this.settings.enableExtensionFiltering}`);
-        console.log(`Allowed extensions: [${this.settings.allowedFileExtensions.join(', ')}]`);
-        console.log(`Ignore patterns: [${this.settings.ignoreGlobs.join(', ')}]`);
-        console.log(`\nAnalyzing ${allFiles.length} remote files:`);
-
-        allFiles.forEach(file => {
-            const filePath = file.path || file.name;
-            const shouldSync = shouldSyncFile(
-                filePath,
-                this.settings.enableExtensionFiltering,
-                this.settings.allowedFileExtensions,
-                this.settings.ignoreGlobs,
-                true,
-                this.settings.allowFolders,
-                file.mimeType
-            );
         });
 
         return listing;
@@ -632,7 +638,7 @@ export class SyncEngine {
                     }
                 }
             } catch (error) {
-                console.error(`Failed to resolve conflict for ${filePath}:`, error);
+                this.logger.error(`Failed to resolve conflict for ${filePath}`, error as Error);
                 stats.errors++;
                 conflicts.push(filePath);
             }
@@ -668,7 +674,7 @@ export class SyncEngine {
                         stats.filesUploaded++;
                         this.logger.debug(`Uploaded: ${filePath}`);
                     } catch (error) {
-                        console.error(`Failed to upload ${filePath}:`, error);
+                        this.logger.error(`Failed to upload ${filePath}`, error as Error);
                         stats.errors++;
                     }
                 });
@@ -690,7 +696,6 @@ export class SyncEngine {
         const filesToDownload: DriveFile[] = [];
 
         // Include new remote files (filter by extensions)
-        console.log(`\n[SYNC DEBUG] Filtering new remote files for download:`);
         for (const remoteFile of comparison.newRemote) {
             const filePath = remoteFile.path || remoteFile.name;
             if (shouldSyncFile(
@@ -698,7 +703,7 @@ export class SyncEngine {
                 this.settings.enableExtensionFiltering,
                 this.settings.allowedFileExtensions,
                 this.settings.ignoreGlobs,
-                true,
+                false,
                 this.settings.allowFolders,
                 remoteFile.mimeType
             )) {
@@ -739,7 +744,7 @@ export class SyncEngine {
                         stats.filesDownloaded++;
                         this.logger.debug(`Downloaded: ${remoteFile.path || remoteFile.name}`);
                     } catch (error) {
-                        console.error(`Failed to download ${remoteFile.name}:`, error);
+                        this.logger.error(`Failed to download ${remoteFile.path || remoteFile.name}`, error as Error);
                         stats.errors++;
                     }
                 });
@@ -774,7 +779,7 @@ export class SyncEngine {
                     stats.filesDeleted++;
                 }
             } catch (error) {
-                console.error(`Failed to delete local file ${filePath}:`, error);
+                this.logger.error(`Failed to delete local file ${filePath}`, error as Error);
                 stats.errors++;
             }
         }
@@ -791,7 +796,7 @@ export class SyncEngine {
                     }
                 }
             } catch (error) {
-                console.error(`Failed to delete remote file ${filePath}:`, error);
+                this.logger.error(`Failed to delete remote file ${filePath}`, error as Error);
                 stats.errors++;
             }
         }

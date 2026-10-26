@@ -1,5 +1,6 @@
 import { App, TFile, Notice } from 'obsidian';
 import { IndexManager, LocalFileEntry } from './index-manager';
+import { Logger } from '../utils/logger';
 
 /**
  * Conflict resolution strategies
@@ -35,6 +36,7 @@ export interface ConflictResolutionResult {
 export class ConflictResolver {
     private app: App;
     private indexManager: IndexManager;
+    private logger = Logger.createComponentLogger('ConflictResolver');
 
     constructor(app: App, indexManager: IndexManager) {
         this.app = app;
@@ -52,14 +54,14 @@ export class ConflictResolver {
             const conflictInfo = await this.analyzeConflict(filePath);
 
             if (!conflictInfo) {
-                console.warn(`Could not analyze conflict for ${filePath}`);
+                this.logger.warn(`Could not analyze conflict for ${filePath}`);
                 return false;
             }
 
             const result = await this.applyResolutionStrategy(conflictInfo, strategy);
 
             if (result.resolved) {
-                console.log(`Conflict resolved for ${filePath}: ${result.action}`);
+                this.logger.info(`Conflict resolved for ${filePath}: ${result.action}`);
 
                 if (result.backupPath) {
                     new Notice(`Conflict resolved: backup saved as ${result.backupPath}`);
@@ -67,13 +69,13 @@ export class ConflictResolver {
 
                 return true;
             } else {
-                console.warn(`Could not resolve conflict for ${filePath}: ${result.error}`);
+                this.logger.warn(`Could not resolve conflict for ${filePath}: ${result.error}`);
                 new Notice(`Conflict resolution failed for ${filePath}`);
                 return false;
             }
 
         } catch (error) {
-            console.error(`Error resolving conflict for ${filePath}:`, error);
+            this.logger.error(`Error resolving conflict for ${filePath}`, error as Error);
             return false;
         }
     }
@@ -113,7 +115,7 @@ export class ConflictResolver {
             };
 
         } catch (error) {
-            console.error(`Failed to analyze conflict for ${filePath}:`, error);
+            this.logger.error(`Failed to analyze conflict for ${filePath}`, error as Error);
             return null;
         }
     }
@@ -235,7 +237,7 @@ export class ConflictResolver {
             const content = await this.app.vault.read(file);
             await this.app.vault.create(backupPath, content);
 
-            console.log(`Created local backup: ${backupPath}`);
+            this.logger.info(`Created local backup: ${backupPath}`);
             return backupPath;
 
         } catch (error) {
@@ -260,7 +262,7 @@ export class ConflictResolver {
             const placeholderContent = `# Remote version backup\n\nThis would contain the remote version of ${filePath}`;
             await this.app.vault.create(backupPath, placeholderContent);
 
-            console.log(`Created remote backup placeholder: ${backupPath}`);
+            this.logger.info(`Created remote backup placeholder: ${backupPath}`);
             return backupPath;
 
         } catch (error) {
@@ -315,7 +317,7 @@ export class ConflictResolver {
                     failed++;
                 }
             } catch (error) {
-                console.error(`Failed to resolve conflict for ${filePath}:`, error);
+                this.logger.error(`Failed to resolve conflict for ${filePath}`, error as Error);
                 failed++;
             }
         }
@@ -400,10 +402,10 @@ export class ConflictResolver {
                     if (fileAge > maxAge) {
                         await this.app.vault.delete(file);
                         cleaned++;
-                        console.log(`Cleaned up old conflict backup: ${file.path}`);
+                        this.logger.info(`Cleaned up old conflict backup: ${file.path}`);
                     }
                 } catch (error) {
-                    console.warn(`Could not clean up ${file.path}:`, error);
+                    this.logger.warn(`Could not clean up ${file.path}`, { error: (error as Error)?.message });
                 }
             }
         }

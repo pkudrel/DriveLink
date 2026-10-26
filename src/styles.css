@@ -113,3 +113,41 @@
     background-color: var(--interactive-accent);
     transition: width 0.3s ease;
 }
+.drivelink-connection-test {
+    margin-bottom: 1rem;
+}
+
+.drivelink-check {
+    padding: 0.25rem 0;
+    font-size: 0.9rem;
+}
+
+.drivelink-check.failed {
+    color: var(--text-error);
+}
+
+.drivelink-check.skipped {
+    color: var(--text-muted);
+}
+
+.drivelink-log-header {
+    margin: 0 0 0.5rem;
+    font-size: 0.8rem;
+    color: var(--text-muted);
+    white-space: pre-wrap;
+}
+
+.drivelink-log-modal .drivelink-actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.5rem;
+    margin-bottom: 0.5rem;
+}
+
+.drivelink-log-text {
+    width: 100%;
+    font-family: var(--font-monospace);
+    font-size: 0.75rem;
+    white-space: pre;
+    resize: vertical;
+}

@@ -1,5 +1,6 @@
 import { TokenManager } from '../auth/token-manager';
 import { DriveFile } from './client';
+import { Logger } from '../utils/logger';
 
 /**
  * Drive change types
@@ -72,6 +73,7 @@ export class DriveChangeDetection {
     private baseUrl = 'https://www.googleapis.com/drive/v3';
     private pageTokenStorageKey = 'drivelink-page-token';
     private plugin: any; // Plugin reference for data storage
+    private logger = Logger.createComponentLogger('ChangeDetection');
 
     constructor(tokenManager: TokenManager, plugin?: any) {
         this.tokenManager = tokenManager;
@@ -105,12 +107,12 @@ export class DriveChangeDetection {
         const url = `${this.baseUrl}/changes/startPageToken${params.toString() ? '?' + params.toString() : ''}`;
 
         // Full debug logging for startPageToken request
-        console.log(`[ChangeDetection] DEBUG: getStartPageToken request`);
-        console.log(`[ChangeDetection] DEBUG: URL: ${url}`);
-        console.log(`[ChangeDetection] DEBUG: Access Token Length: ${accessToken.length}`);
-        console.log(`[ChangeDetection] DEBUG: Options:`, JSON.stringify(options, null, 2));
-        console.log(`[ChangeDetection] DEBUG: Request Headers:`, {
-            'Authorization': `Bearer ${accessToken.substring(0, 20)}...`,
+        this.logger.debug(`getStartPageToken request`);
+        this.logger.debug(`URL: ${url}`);
+        this.logger.debug(`Access Token Length: ${accessToken.length}`);
+        this.logger.debug(`Options`, { details: JSON.stringify(options, null, 2) });
+        this.logger.debug(`Request Headers`, {
+            'Authorization': 'Bearer ***',
             'Content-Type': 'application/json'
         });
 
@@ -121,9 +123,9 @@ export class DriveChangeDetection {
             }
         });
 
-        console.log(`[ChangeDetection] DEBUG: getStartPageToken response`);
-        console.log(`[ChangeDetection] DEBUG: Response Status: ${response.status}`);
-        console.log(`[ChangeDetection] DEBUG: Response Headers:`, {
+        this.logger.debug(`getStartPageToken response`);
+        this.logger.debug(`Response Status: ${response.status}`);
+        this.logger.debug(`Response Headers`, {
             'content-type': response.headers.get('content-type'),
             'cache-control': response.headers.get('cache-control'),
             'x-goog-api-version': response.headers.get('x-goog-api-version'),
@@ -132,13 +134,13 @@ export class DriveChangeDetection {
 
         if (!response.ok) {
             const errorText = await response.text();
-            console.log(`[ChangeDetection] DEBUG: Error Response Body:`, errorText);
+            this.logger.debug(`Error Response Body`, { details: errorText });
 
             let errorDetails = '';
             try {
                 const errorJson = JSON.parse(errorText);
                 errorDetails = JSON.stringify(errorJson, null, 2);
-                console.log(`[ChangeDetection] DEBUG: Parsed Error:`, errorJson);
+                this.logger.debug(`Parsed Error`, { details: errorJson });
             } catch {
                 errorDetails = errorText;
             }
@@ -147,8 +149,8 @@ export class DriveChangeDetection {
         }
 
         const data = await response.json();
-        console.log(`[ChangeDetection] DEBUG: Success Response Body:`, JSON.stringify(data, null, 2));
-        console.log(`[ChangeDetection] Google Drive returned start page token:`, data);
+        this.logger.debug(`Success Response Body`, { details: JSON.stringify(data, null, 2) });
+        this.logger.debug(`Google Drive returned start page token`, { details: data });
         return data.startPageToken;
     }
 
@@ -198,17 +200,17 @@ export class DriveChangeDetection {
         const url = `${this.baseUrl}/changes?${params.toString()}`;
 
         // Full debug logging for changes.list request
-        console.log(`[ChangeDetection] DEBUG: listChanges request`);
-        console.log(`[ChangeDetection] DEBUG: URL: ${url}`);
-        console.log(`[ChangeDetection] DEBUG: Page Token: "${pageToken}"`);
-        console.log(`[ChangeDetection] DEBUG: Page Token Length: ${pageToken.length}`);
-        console.log(`[ChangeDetection] DEBUG: Page Token Type: ${typeof pageToken}`);
-        console.log(`[ChangeDetection] DEBUG: Page Token Numeric: ${/^\d+$/.test(pageToken)}`);
-        console.log(`[ChangeDetection] DEBUG: Access Token Length: ${accessToken.length}`);
-        console.log(`[ChangeDetection] DEBUG: Options:`, JSON.stringify(options, null, 2));
-        console.log(`[ChangeDetection] DEBUG: All Params:`, Object.fromEntries(params.entries()));
-        console.log(`[ChangeDetection] DEBUG: Request Headers:`, {
-            'Authorization': `Bearer ${accessToken.substring(0, 20)}...`,
+        this.logger.debug(`listChanges request`);
+        this.logger.debug(`URL: ${url}`);
+        this.logger.debug(`Page Token: "${pageToken}"`);
+        this.logger.debug(`Page Token Length: ${pageToken.length}`);
+        this.logger.debug(`Page Token Type: ${typeof pageToken}`);
+        this.logger.debug(`Page Token Numeric: ${/^\d+$/.test(pageToken)}`);
+        this.logger.debug(`Access Token Length: ${accessToken.length}`);
+        this.logger.debug(`Options`, { details: JSON.stringify(options, null, 2) });
+        this.logger.debug(`All Params`, { details: Object.fromEntries(params.entries()) });
+        this.logger.debug(`Request Headers`, {
+            'Authorization': 'Bearer ***',
             'Content-Type': 'application/json'
         });
 
@@ -221,8 +223,8 @@ export class DriveChangeDetection {
             headers: requestHeaders
         });
 
-        console.log(`[ChangeDetection] DEBUG: Response Status: ${response.status}`);
-        console.log(`[ChangeDetection] DEBUG: Response Headers:`, {
+        this.logger.debug(`Response Status: ${response.status}`);
+        this.logger.debug(`Response Headers`, {
             'content-type': response.headers.get('content-type'),
             'cache-control': response.headers.get('cache-control'),
             'x-goog-api-version': response.headers.get('x-goog-api-version'),
@@ -231,13 +233,13 @@ export class DriveChangeDetection {
 
         if (!response.ok) {
             const responseText = await response.text();
-            console.log(`[ChangeDetection] DEBUG: Error Response Body:`, responseText);
+            this.logger.debug(`Error Response Body`, { details: responseText });
 
             let errorDetails = '';
             try {
                 const errorJson = JSON.parse(responseText);
                 errorDetails = JSON.stringify(errorJson, null, 2);
-                console.log(`[ChangeDetection] DEBUG: Parsed Error:`, errorJson);
+                this.logger.debug(`Parsed Error`, { details: errorJson });
             } catch {
                 errorDetails = responseText;
             }
@@ -246,8 +248,8 @@ export class DriveChangeDetection {
         }
 
         const responseJson = await response.json();
-        console.log(`[ChangeDetection] DEBUG: Full Success Response:`, JSON.stringify(responseJson, null, 2));
-        console.log(`[ChangeDetection] DEBUG: Success Response Summary:`, {
+        this.logger.debug(`Full Success Response`, { details: JSON.stringify(responseJson, null, 2) });
+        this.logger.debug(`Success Response Summary`, {
             changesCount: responseJson.changes?.length || 0,
             hasNextPageToken: !!responseJson.nextPageToken,
             nextPageToken: responseJson.nextPageToken,
@@ -272,7 +274,7 @@ export class DriveChangeDetection {
 
         // A token is usable only after a full scan of the same folder completed
         if (!tokenData || !tokenData.lastFullScan || tokenData.folderId !== folderId || this.isTokenStale(tokenData)) {
-            console.log('[ChangeDetection] No usable token for this folder, full scan required');
+            this.logger.info('No usable token for this folder, full scan required');
             return { needsFullScan: true, changes: [] };
         }
 
@@ -280,7 +282,7 @@ export class DriveChangeDetection {
         let currentPageToken = tokenData.token;
         let pagesProcessed = 0;
 
-        console.log(`[ChangeDetection] Starting incremental sync from token: ${currentPageToken}`);
+        this.logger.info(`Starting incremental sync from token: ${currentPageToken}`);
 
         while (true) {
             let response: ChangesResponse;
@@ -292,7 +294,7 @@ export class DriveChangeDetection {
             } catch (error) {
                 // 400 means the stored page token is no longer valid
                 if (error.message?.includes('400')) {
-                    console.log(`[ChangeDetection] Invalid page token (${currentPageToken}), full scan required`);
+                    this.logger.info(`Invalid page token (${currentPageToken}), full scan required`);
                     return { needsFullScan: true, changes: [] };
                 }
                 throw error;
@@ -301,17 +303,17 @@ export class DriveChangeDetection {
             allChanges.push(...response.changes);
             pagesProcessed++;
 
-            console.log(`[ChangeDetection] Page ${pagesProcessed}: Found ${response.changes.length} changes`);
+            this.logger.info(`Page ${pagesProcessed}: Found ${response.changes.length} changes`);
 
             if (!response.nextPageToken) {
-                console.log(`[ChangeDetection] Incremental sync complete: ${allChanges.length} changes found across ${pagesProcessed} pages`);
+                this.logger.info(`Incremental sync complete: ${allChanges.length} changes found across ${pagesProcessed} pages`);
                 return { needsFullScan: false, changes: allChanges, newPageToken: response.newStartPageToken };
             }
             currentPageToken = response.nextPageToken;
 
             // Safety check to prevent infinite loops
             if (pagesProcessed > 100) {
-                console.warn(`[ChangeDetection] Too many pages (${pagesProcessed}), full scan required`);
+                this.logger.warn(`Too many pages (${pagesProcessed}), full scan required`);
                 return { needsFullScan: true, changes: [] };
             }
         }
@@ -385,7 +387,7 @@ export class DriveChangeDetection {
 
             return response.changes.length > 0;
         } catch (error) {
-            console.error('Error checking for changes:', error);
+            this.logger.error('Error checking for changes', error as Error);
             return false;
         }
     }
@@ -394,7 +396,7 @@ export class DriveChangeDetection {
      * Force clear all tokens; the next sync performs a full scan
      */
     async forceResetChangeDetection(): Promise<void> {
-        console.log(`[ChangeDetection] Force resetting change detection - clearing all tokens`);
+        this.logger.info(`Force resetting change detection - clearing all tokens`);
         await this.clearStoredPageToken();
     }
 
@@ -418,7 +420,7 @@ export class DriveChangeDetection {
                 this.plugin.settings.changeDetectionToken = JSON.stringify(tokenData);
                 await this.plugin.saveSettings();
                 stored = true;
-                console.log(`[ChangeDetection] Stored token with metadata:`, {
+                this.logger.debug(`Stored token with metadata`, {
                     token,
                     syncCount: tokenData.syncCount,
                     folderId: tokenData.folderId,
@@ -427,14 +429,14 @@ export class DriveChangeDetection {
             } else if (typeof localStorage !== 'undefined') {
                 localStorage.setItem(this.pageTokenStorageKey, JSON.stringify(tokenData));
                 stored = true;
-                console.log(`[ChangeDetection] Stored token in localStorage: ${token}`);
+                this.logger.debug(`Stored token in localStorage: ${token}`);
             }
 
             if (!stored) {
-                console.warn(`[ChangeDetection] Failed to store token - no storage available`);
+                this.logger.warn(`Failed to store token - no storage available`);
             }
         } catch (error) {
-            console.error('Failed to store page token:', error);
+            this.logger.error('Failed to store page token', error as Error);
         }
     }
 
@@ -462,7 +464,7 @@ export class DriveChangeDetection {
                 source = 'localStorage';
             }
 
-            console.log(`[ChangeDetection] Token retrieval: source=${source}, hasToken=${!!tokenDataStr}`);
+            this.logger.debug(`Token retrieval: source=${source}, hasToken=${!!tokenDataStr}`);
 
             if (!tokenDataStr) {
                 return null;
@@ -471,7 +473,7 @@ export class DriveChangeDetection {
             const tokenData: PageTokenData = JSON.parse(tokenDataStr);
             const tokenAge = Date.now() - tokenData.timestamp;
 
-            console.log(`[ChangeDetection] Token details:`, {
+            this.logger.debug(`Token details`, {
                 token: tokenData.token,
                 ageMinutes: Math.round(tokenAge/1000/60),
                 lastFullScan: tokenData.lastFullScan,
@@ -481,7 +483,7 @@ export class DriveChangeDetection {
 
             return tokenData;
         } catch (error) {
-            console.error('Failed to retrieve page token data:', error);
+            this.logger.error('Failed to retrieve page token data', error as Error);
             return null;
         }
     }
@@ -502,7 +504,7 @@ export class DriveChangeDetection {
         const maxAge = 7 * 24 * 60 * 60 * 1000; // 7 days in milliseconds
 
         if (tokenAge > maxAge) {
-            console.log(`[ChangeDetection] Token is stale (age: ${Math.round(tokenAge/1000/60/60)}h)`);
+            this.logger.info(`Token is stale (age: ${Math.round(tokenAge/1000/60/60)}h)`);
             return true;
         }
 
@@ -523,7 +525,7 @@ export class DriveChangeDetection {
                 localStorage.removeItem(this.pageTokenStorageKey);
             }
         } catch (error) {
-            console.error('Failed to clear page token:', error);
+            this.logger.error('Failed to clear page token', error as Error);
         }
     }
 

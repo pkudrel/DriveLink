@@ -1,5 +1,6 @@
 import { App, Notice, PluginSettingTab, Setting } from 'obsidian';
 import DriveLinkPlugin from './main';
+import { formatConnectionCheck } from './drive/connection-test';
 import { LogLevel, Logger } from './utils/logger';
 
 /**
@@ -243,6 +244,37 @@ export class DriveLinkSettingTab extends PluginSettingTab {
                         console.error('Folder setup failed:', error);
                     }
                 }));
+
+        // Connection test; results are listed below the button
+        let resultsEl: HTMLElement;
+        new Setting(containerEl)
+            .setName('Test connection')
+            .setDesc('Checks the token, Google Drive access, the sync folder and change detection. Nothing is written to Drive.')
+            .addButton(button => button
+                .setButtonText('Test connection')
+                .onClick(async () => {
+                    button.setDisabled(true);
+                    button.setButtonText('Testing...');
+                    resultsEl.empty();
+                    try {
+                        const checks = await this.plugin.testConnection();
+                        for (const check of checks) {
+                            const rowEl = resultsEl.createDiv({
+                                cls: `drivelink-check ${check.status}`,
+                                text: formatConnectionCheck(check)
+                            });
+                            if (check.hint) {
+                                rowEl.createDiv({ cls: 'setting-item-description', text: check.hint });
+                            }
+                        }
+                    } catch (error) {
+                        resultsEl.createDiv({ cls: 'drivelink-check failed', text: `❌ ${(error as Error).message}` });
+                    } finally {
+                        button.setDisabled(false);
+                        button.setButtonText('Test connection');
+                    }
+                }));
+        resultsEl = containerEl.createDiv({ cls: 'drivelink-connection-test' });
     }
 
     private addSyncSection(containerEl: HTMLElement): void {
@@ -333,6 +365,14 @@ export class DriveLinkSettingTab extends PluginSettingTab {
                     // Update logger immediately
                     Logger.setLevel(newLevel);
                 }));
+
+        // Log window (the only way to see the log on mobile)
+        new Setting(containerEl)
+            .setName('Log')
+            .setDesc('Show the plugin log and copy the last sync or the whole log. Tokens and secrets are removed.')
+            .addButton(button => button
+                .setButtonText('Show log')
+                .onClick(() => this.plugin.showLog()));
 
         // Performance settings
         new Setting(containerEl)

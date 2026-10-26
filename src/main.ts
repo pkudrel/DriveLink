@@ -2,8 +2,11 @@ import { Notice, Plugin } from 'obsidian';
 import { DriveLinkSettings, DEFAULT_SETTINGS, DriveLinkSettingTab } from './settings';
 import { TokenManager, TOKEN_STORAGE_KEY } from './auth/token-manager';
 import { DriveClient } from './drive/client';
-import { SyncEngine } from './sync/sync-engine';
+import { SyncEngine, SyncResult } from './sync/sync-engine';
 import { INDEX_STORAGE_KEY } from './sync/index-manager';
+import { DriveChangeDetection } from './drive/change-detection';
+import { ConnectionCheck, formatConnectionCheck, runConnectionTest } from './drive/connection-test';
+import { LogModal } from './ui/log-modal';
 import { Logger, LogLevel } from './utils/logger';
 
 /**
@@ -16,6 +19,7 @@ export default class DriveLinkPlugin extends Plugin {
         tokenManager: TokenManager;
         driveClient: DriveClient;
         syncEngine: SyncEngine;
+        lastSyncResult?: SyncResult; // Outcome of the last sync in this session
         private settingsTab?: DriveLinkSettingTab;
         private dataWriteQueue: Promise<void> = Promise.resolve();
 
@@ -61,6 +65,12 @@ export default class DriveLinkPlugin extends Plugin {
 			id: 'reset-change-detection',
 			name: 'Reset change detection',
 			callback: () => this.resetChangeDetection()
+		});
+
+		this.addCommand({
+			id: 'show-log',
+			name: 'Show log',
+			callback: () => this.showLog()
 		});
 
 
@@ -137,11 +147,96 @@ export default class DriveLinkPlugin extends Plugin {
 				await this.setupDriveFolder();
 			}
 
-			await this.syncEngine.performSync();
-			console.log('Sync completed successfully');
+			const result = await this.syncEngine.performSync();
+			this.lastSyncResult = result;
+
+			if (result.success) {
+				const { filesUploaded, filesDownloaded, filesDeleted } = result.stats;
+				new Notice(`DriveLink: sync completed (${filesUploaded} uploaded, ${filesDownloaded} downloaded, ${filesDeleted} deleted)`);
+			} else {
+				this.notifySyncFailure(result.error || `${result.stats.errors} file(s) failed`);
+			}
 		} catch (error) {
-			console.error('Sync failed:', error);
+			Logger.error('Main', 'Sync failed', error as Error);
+			this.notifySyncFailure((error as Error).message);
 		}
+	}
+
+	/**
+	 * Failure notice with a button that opens the log
+	 */
+	private notifySyncFailure(message: string): void {
+		const fragment = document.createDocumentFragment();
+		fragment.createDiv({ text: `DriveLink: sync failed: ${message}` });
+		fragment.createEl('button', { text: 'Show log' })
+			.addEventListener('click', () => this.showLog());
+		new Notice(fragment, 15000);
+	}
+
+	showLog(): void {
+		new LogModal(this.app, this).open();
+	}
+
+	/**
+	 * Check token, Drive API, sync folder and change detection; results also go to the log
+	 */
+	async testConnection(): Promise<ConnectionCheck[]> {
+		const changeDetection = new DriveChangeDetection(this.tokenManager);
+		const checks = await runConnectionTest({
+			tokenManager: this.tokenManager,
+			driveClient: this.driveClient,
+			getStartPageToken: () => changeDetection.getStartPageToken(),
+			folderId: this.settings.driveFolderId
+		});
+
+		for (const check of checks) {
+			if (check.status === 'failed') {
+				Logger.warn('Connection', formatConnectionCheck(check), { hint: check.hint });
+			} else {
+				Logger.info('Connection', formatConnectionCheck(check));
+			}
+		}
+		return checks;
+	}
+
+	/**
+	 * File with the log of the last sync, kept across restarts (iOS often kills the app);
+	 * null when the plugin has no folder (tests)
+	 */
+	private get lastSyncLogPath(): string | null {
+		return this.manifest?.dir ? `${this.manifest.dir}/last-sync.log` : null;
+	}
+
+	async saveLastSyncLog(): Promise<void> {
+		const path = this.lastSyncLogPath;
+		if (!path) {
+			return;
+		}
+		try {
+			await this.app.vault.adapter.write(path, Logger.formatEntries(Logger.getLastSyncEntries()));
+		} catch (error) {
+			Logger.warn('Main', 'Could not save the last sync log', { error: (error as Error).message });
+		}
+	}
+
+	/**
+	 * Log of the last sync: from memory, or from the file written by an earlier session
+	 */
+	async readLastSyncLog(): Promise<string> {
+		const entries = Logger.getLastSyncEntries();
+		if (entries.length > 0) {
+			return Logger.formatEntries(entries);
+		}
+
+		const path = this.lastSyncLogPath;
+		try {
+			if (path && await this.app.vault.adapter.exists(path)) {
+				return await this.app.vault.adapter.read(path);
+			}
+		} catch (error) {
+			Logger.warn('Main', 'Could not read the last sync log', { error: (error as Error).message });
+		}
+		return '';
 	}
 
 	async resetChangeDetection() {
