@@ -526,6 +526,8 @@ export class SyncEngine {
     private async getFilesFromChanges(changes: any[]): Promise<{ files: DriveFile[]; removedIds: string[] }> {
         const files: DriveFile[] = [];
         const removedIds: string[] = [];
+        // Folder ID -> vault path, shared by all changes of this sync
+        const folderPaths = new Map<string, string | null>();
 
         for (const change of changes) {
             if (change.removed || change.file?.trashed) {
@@ -535,10 +537,23 @@ export class SyncEngine {
             }
 
             if (change.file) {
-                // Resolve the full path by looking up parent folders
-                const fullPath = await this.resolveFilePathFromParents(change.file);
-                const fileWithPath = { ...change.file, path: fullPath };
-                files.push(fileWithPath);
+                // The Changes API reports the whole Drive, not only the sync folder
+                const parentId = change.file.parents?.[0];
+                const parentPath = parentId ? await this.resolveFolderPath(parentId, folderPaths) : null;
+
+                if (parentPath === null) {
+                    // Outside the sync folder: ignored, or removed if it was synced before and moved out
+                    this.logger.debug('Ignoring change outside the sync folder', {
+                        fileId: change.file.id,
+                        name: change.file.name,
+                        parents: change.file.parents
+                    });
+                    removedIds.push(change.fileId);
+                    continue;
+                }
+
+                const fullPath = parentPath ? `${parentPath}/${change.file.name}` : change.file.name;
+                files.push({ ...change.file, path: fullPath });
 
                 this.logger.debug('Found changed file', {
                     name: change.file.name,
@@ -554,52 +569,38 @@ export class SyncEngine {
     }
 
     /**
-     * Resolve the full path of a file by traversing its parent folders
+     * Vault path of a Drive folder relative to the sync folder ('' for the sync folder itself),
+     * or null when the folder is not inside the sync folder
      */
-    private async resolveFilePathFromParents(file: any): Promise<string> {
-        if (!file.parents || file.parents.length === 0) {
-            return file.name;
+    private async resolveFolderPath(folderId: string, cache: Map<string, string | null>): Promise<string | null> {
+        if (folderId === this.settings.driveFolderId) {
+            return '';
         }
 
-        const parentId = file.parents[0]; // Use the first parent
-
-        // If the parent is the root folder we're syncing from, file is at root level
-        if (parentId === this.settings.driveFolderId) {
-            return file.name;
+        if (cache.has(folderId)) {
+            return cache.get(folderId)!;
         }
 
+        let folderPath: string | null = null;
         try {
-            // Get parent folder information
-            const parentFolder = await this.driveClient.getFileMetadata(parentId);
-
-            if (!parentFolder) {
-                this.logger.warn('Could not resolve parent folder', { parentId, fileName: file.name });
-                return file.name;
+            const folder = await this.driveClient.getFileMetadata(folderId);
+            const parentId = folder.parents?.[0];
+            if (parentId) {
+                const parentPath = await this.resolveFolderPath(parentId, cache);
+                if (parentPath !== null) {
+                    folderPath = parentPath ? `${parentPath}/${folder.name}` : folder.name;
+                }
             }
-
-            // Recursively resolve parent path
-            const parentPath = await this.resolveFilePathFromParents(parentFolder);
-
-            // Build full path
-            const fullPath = parentPath ? `${parentPath}/${file.name}` : file.name;
-
-            this.logger.debug('Resolved file path', {
-                fileName: file.name,
-                parentId,
-                parentName: parentFolder.name,
-                parentPath,
-                fullPath
-            });
-
-            return fullPath;
-
         } catch (error) {
-            this.logger.error('Error resolving parent folder path', error as Error, {
-                parentId,
-                fileName: file.name
-            });
-            return file.name; // Fallback to just filename
+            // A parent the user cannot see is outside the sync folder; other errors fail the sync,
+            // so the change token is not committed and the change is read again next time
+            if (!error.message?.includes('Drive API error 404')) {
+                throw error;
+            }
         }
+
+        cache.set(folderId, folderPath);
+        return folderPath;
     }
 
     /**

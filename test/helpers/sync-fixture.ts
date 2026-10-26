@@ -106,8 +106,12 @@ export class FakeDrive {
         this.trashedIds.push(fileId);
     }
 
+    metadata = new Map<string, DriveFile>();
+
     async getFileMetadata(fileId: string): Promise<DriveFile> {
-        throw new Error(`metadata not stubbed for ${fileId}`);
+        const file = this.metadata.get(fileId);
+        if (!file) throw new Error(`Drive API error 404: File not found: ${fileId}`);
+        return file;
     }
 
     async downloadFile(_fileId: string): Promise<ArrayBuffer> {
@@ -176,6 +180,10 @@ export async function createSyncFixture(syncedFiles: Array<{ path: string; drive
 
 export function removedChange(fileId: string): DriveChange {
     return { fileId, removed: true, time: OLD_REMOTE_TIME, type: 'file' };
+}
+
+export function fileChange(file: DriveFile): DriveChange {
+    return { fileId: file.id, file, time: OLD_REMOTE_TIME, type: 'file' };
 }
 
 export function trashedChange(file: DriveFile): DriveChange {

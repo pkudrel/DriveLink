@@ -84,7 +84,6 @@ test('failed sync keeps the old change token and last sync time', async () => {
         newPageToken: 'token-2'
     };
     drive.downloadError = new Error('network down');
-    (engine as any).resolveFilePathFromParents = async (file: { name: string }) => file.name;
 
     const result = await engine.performSync();
 
