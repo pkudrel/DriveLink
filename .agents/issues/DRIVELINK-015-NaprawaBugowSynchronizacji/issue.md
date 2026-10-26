@@ -32,3 +32,4 @@ Naprawa błędów z analizy DRIVELINK-004, zaczynając od K2.
 - 2026-10-26 — GitHub issue not created: token lacks Issues write (createIssue: Resource not accessible by integration)
 - 2026-10-26 — Triggered scenario via /issue
 - 2026-10-26 — K2 done: serialized data.json writes (updateData), saveSettings writes settings keys only; test runner (node:test + esbuild) with 5 tests
+- 2026-10-26 — K1/W5/S8/W6 + W3 done: delta vs full listing (RemoteScope), token committed after successful sync, full scan when no usable token, fast sync walks all subfolders, trash instead of delete; 11 new tests

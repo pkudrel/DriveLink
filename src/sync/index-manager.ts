@@ -46,6 +46,14 @@ export interface IndexComparison {
 }
 
 /**
+ * What a remote file list represents
+ */
+export interface RemoteScope {
+    isComplete: boolean; // true: the full content of the Drive folder; false: only changed files
+    removedIds?: string[]; // Drive IDs reported as removed or trashed
+}
+
+/**
  * Change detection result
  */
 export interface ChangeDetectionResult {
@@ -277,6 +285,7 @@ export class IndexManager {
      */
     async compareWithRemoteFiles(
         remoteFiles: DriveFile[],
+        remoteScope: RemoteScope,
         ignorePatterns: string[] = [],
         enableExtensionFiltering: boolean = false,
         allowedFileExtensions: string[] = [],
@@ -307,6 +316,8 @@ export class IndexManager {
             }
         }
 
+        const removedIds = new Set(remoteScope.removedIds || []);
+
         // Check for remote changes and conflicts
         for (const [path, indexEntry] of Object.entries(this.index.files)) {
             if (!indexEntry.driveId) continue;
@@ -314,8 +325,11 @@ export class IndexManager {
             const remoteFile = remoteById.get(indexEntry.driveId);
 
             if (!remoteFile) {
-                // File deleted from Drive
-                comparison.deletedRemote.push(path);
+                // Absent from a list of changed files only means unchanged;
+                // a file counts as deleted when a full listing misses it or Drive reports it removed
+                if (remoteScope.isComplete || removedIds.has(indexEntry.driveId)) {
+                    comparison.deletedRemote.push(path);
+                }
                 continue;
             }
 

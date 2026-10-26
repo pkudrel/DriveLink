@@ -12,6 +12,7 @@ export interface DriveFile {
     modifiedTime: string;
     parents?: string[];
     md5Checksum?: string;
+    trashed?: boolean; // Present in Changes API results
     path?: string; // Full path from root (added by sync engine)
 }
 
@@ -170,6 +171,24 @@ export class DriveClient {
     }
 
     /**
+     * List subfolders of a folder, regardless of their modification time
+     */
+    async listSubfolders(folderId: string, pageToken?: string): Promise<DriveListResponse> {
+        const params = new URLSearchParams({
+            q: `'${folderId}' in parents and trashed=false and mimeType='application/vnd.google-apps.folder'`,
+            fields: 'files(id,name,mimeType,size,modifiedTime,parents,md5Checksum),nextPageToken',
+            pageSize: '100'
+        });
+
+        if (pageToken) {
+            params.append('pageToken', pageToken);
+        }
+
+        const response = await this.makeRequest(`/files?${params.toString()}`);
+        return await response.json();
+    }
+
+    /**
      * Get file metadata by ID
      */
     async getFileMetadata(fileId: string): Promise<DriveFile> {
@@ -219,11 +238,12 @@ export class DriveClient {
     }
 
     /**
-     * Delete a file by ID
+     * Move a file to the Drive trash (recoverable, unlike a permanent delete)
      */
-    async deleteFile(fileId: string): Promise<void> {
+    async trashFile(fileId: string): Promise<void> {
         await this.makeRequest(`/files/${fileId}`, {
-            method: 'DELETE'
+            method: 'PATCH',
+            body: JSON.stringify({ trashed: true })
         });
     }
 

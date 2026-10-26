@@ -3,7 +3,7 @@ import type DriveLinkPlugin from '../main';
 import { DriveClient, DriveFile } from '../drive/client';
 import { DriveFileOperations, UploadOptions } from '../drive/file-operations';
 import { DriveChangeDetection } from '../drive/change-detection';
-import { IndexManager, IndexComparison, LocalFileEntry } from './index-manager';
+import { IndexManager, IndexComparison, LocalFileEntry, RemoteScope } from './index-manager';
 import { ConflictResolver } from './conflict-resolver';
 import { DriveLinkSettings } from '../settings';
 import { shouldSyncFile } from '../utils/extension-filter';
@@ -53,6 +53,15 @@ export interface SyncOptions {
 }
 
 /**
+ * Remote files fetched for one sync run
+ */
+interface RemoteListing extends RemoteScope {
+    files: DriveFile[];
+    // Persists the change detection token; call only after a successful sync
+    commit?: () => Promise<void>;
+}
+
+/**
  * Main synchronization engine
  */
 export class SyncEngine {
@@ -89,17 +98,8 @@ export class SyncEngine {
      * Initialize the sync engine
      */
     async initialize(): Promise<void> {
+        // No change token is taken here: the first sync does a full scan and stores one
         await this.indexManager.initialize();
-
-        // Initialize change detection if not already done
-        try {
-            const hasToken = await this.changeDetection.getChangeDetectionStats();
-            if (!hasToken.hasStoredToken) {
-                await this.changeDetection.initializeChangeDetection();
-            }
-        } catch (error) {
-            console.warn('Could not initialize change detection:', error);
-        }
     }
 
     /**
@@ -131,8 +131,12 @@ export class SyncEngine {
 
             // Step 1: Get remote files from Drive folder
             this.logger.debug('Getting remote files from Drive');
-            const remoteFiles = await this.getRemoteFiles(options.onProgress);
-            this.logger.info(`Found ${remoteFiles.length} remote files`);
+            const listing = await this.getRemoteFiles(options.onProgress);
+            const remoteFiles = listing.files;
+            this.logger.info(`Found ${remoteFiles.length} remote files`, {
+                isComplete: listing.isComplete,
+                removed: listing.removedIds?.length || 0
+            });
 
             // Step 2: Detect changes
             if (options.onProgress) {
@@ -145,6 +149,7 @@ export class SyncEngine {
             });
             const comparison = await this.indexManager.compareWithRemoteFiles(
                 remoteFiles,
+                listing,
                 this.settings.ignoreGlobs,
                 this.settings.enableExtensionFiltering,
                 this.settings.allowedFileExtensions,
@@ -185,6 +190,7 @@ export class SyncEngine {
                     options.onProgress('No changes detected', 0, 0);
                 }
 
+                await this.commitSuccessfulSync(listing, stats, options);
                 stats.endTime = Date.now();
                 stats.duration = stats.endTime - stats.startTime;
 
@@ -231,21 +237,9 @@ export class SyncEngine {
             //     }
             // }
 
+            await this.commitSuccessfulSync(listing, stats, options);
             stats.endTime = Date.now();
             stats.duration = stats.endTime - stats.startTime;
-
-            // Update last sync time for successful syncs
-            if (stats.errors === 0) {
-                this.settings.lastSyncTime = new Date().toISOString();
-                try {
-                    await this.plugin.saveSettings();
-                    this.logger.debug('Updated last sync time', {
-                        lastSyncTime: this.settings.lastSyncTime
-                    });
-                } catch (error) {
-                    this.logger.warn('Failed to save last sync time', error as Error);
-                }
-            }
 
             if (options.onProgress) {
                 options.onProgress('Sync completed', totalOps, totalOps);
@@ -279,10 +273,40 @@ export class SyncEngine {
     }
 
     /**
-     * Get all files from the configured Drive folder (recursively)
+     * Store the change token and last sync time, only when the sync fully succeeded,
+     * so a failed sync sees the same remote changes again
      */
-    private async getRemoteFiles(onProgress?: SyncProgressCallback): Promise<DriveFile[]> {
-        if (!this.settings.driveFolderId) {
+    private async commitSuccessfulSync(
+        listing: RemoteListing,
+        stats: SyncStats,
+        options: SyncOptions
+    ): Promise<void> {
+        if (stats.errors > 0 || options.dryRun) {
+            return;
+        }
+
+        if (listing.commit) {
+            await listing.commit();
+        }
+
+        // Sync start time, so remote changes made during the sync are picked up next time
+        this.settings.lastSyncTime = new Date(stats.startTime).toISOString();
+        try {
+            await this.plugin.saveSettings();
+            this.logger.debug('Updated last sync time', {
+                lastSyncTime: this.settings.lastSyncTime
+            });
+        } catch (error) {
+            this.logger.warn('Failed to save last sync time', error as Error);
+        }
+    }
+
+    /**
+     * Get files from the configured Drive folder: a full listing or only the changes
+     */
+    private async getRemoteFiles(onProgress?: SyncProgressCallback): Promise<RemoteListing> {
+        const folderId = this.settings.driveFolderId;
+        if (!folderId) {
             throw new Error('No Drive folder configured');
         }
 
@@ -290,10 +314,8 @@ export class SyncEngine {
             onProgress('Fetching remote files...', 0, 0);
         }
 
-        // Try the new robust change detection first, fall back to timestamp sync if needed
-        let allFiles: DriveFile[] = [];
-        let syncStrategy = 'change-detection';
-        let wasBootstrapped = false;
+        let listing: RemoteListing;
+        let syncStrategy: string;
 
         // Check if change detection should be disabled due to repeated failures
         const failureCount = this.settings.changeDetectionFailureCount || 0;
@@ -301,116 +323,71 @@ export class SyncEngine {
 
         if (isDisabled || failureCount >= 3) {
             this.logger.info(`Change detection disabled due to repeated failures (count: ${failureCount}), using timestamp sync`);
-
-            // Use timestamp-based sync directly
-            const canUseFastSync = Boolean(this.settings.lastSyncTime);
-            syncStrategy = canUseFastSync ? 'fast-timestamp' : 'full';
-
-            this.logger.info(`Fetching remote files from Drive folder (recursive, ${syncStrategy} sync)`, {
-                folderId: this.settings.driveFolderId,
-                lastSyncTime: this.settings.lastSyncTime,
-                strategy: syncStrategy,
-                reason: `Change detection disabled after ${failureCount} failures`
-            });
-
-            allFiles = await this.getRemoteFilesRecursive(
-                this.settings.driveFolderId,
-                '',
-                onProgress,
-                canUseFastSync
-            );
+            listing = await this.getRemoteFilesByTimestamp(onProgress);
+            syncStrategy = listing.isComplete ? 'full' : 'fast-timestamp';
         } else {
             try {
-                this.logger.info('Attempting robust change detection sync with proper error recovery');
+                const changeResult = await this.changeDetection.getAllChangesSinceLastCheck(folderId);
 
-            const changeResult = await this.changeDetection.getAllChangesSinceLastCheck(
-                this.settings.driveFolderId
-            );
-
-            wasBootstrapped = changeResult.wasBootstrapped;
-
-            if (changeResult.wasBootstrapped) {
-                if (changeResult.shouldSkipFullScan) {
-                    // Bootstrap occurred but skip full scan due to recent activity
-                    this.logger.info('Change detection was bootstrapped fresh - skipping full scan due to recent bootstrap activity');
-                    allFiles = [];
-                    syncStrategy = 'change-detection-bootstrap-skipped-full-scan';
+                if (changeResult.needsFullScan) {
+                    // Token taken before the scan, so changes made during the scan are seen next time
+                    const startToken = await this.changeDetection.getStartPageToken();
+                    this.logger.info('No usable change token - performing full scan');
+                    const files = await this.getRemoteFilesRecursive(folderId, '', onProgress, false);
+                    listing = {
+                        files,
+                        isComplete: true,
+                        commit: () => this.changeDetection.commitPageToken(startToken, folderId, true)
+                    };
+                    syncStrategy = 'change-detection-full-scan';
                 } else {
-                    // Token was bootstrapped fresh, need to do full scan to capture existing files
-                    this.logger.info('Change detection was bootstrapped fresh - performing full scan to capture existing files');
-
-                    allFiles = await this.getRemoteFilesRecursive(
-                        this.settings.driveFolderId,
-                        '',
-                        onProgress,
-                        false // Force full scan, not timestamp-based
-                    );
-
-                    // Mark that full scan was completed
-                    await this.changeDetection.markFullScanCompleted();
-                    syncStrategy = 'change-detection-bootstrap-with-full-scan';
+                    const newPageToken = changeResult.newPageToken!;
+                    const { files, removedIds } = await this.getFilesFromChanges(changeResult.changes);
+                    listing = {
+                        files,
+                        isComplete: false,
+                        removedIds,
+                        commit: () => this.changeDetection.commitPageToken(newPageToken, folderId, false)
+                    };
+                    syncStrategy = changeResult.changes.length === 0
+                        ? 'change-detection-no-changes'
+                        : 'change-detection-incremental';
+                    this.logger.info(`Found ${changeResult.changes.length} changes via change detection`);
                 }
-            } else if (changeResult.changes.length === 0) {
-                // No changes detected
-                this.logger.info('No changes detected via change detection');
-                allFiles = [];
-                syncStrategy = 'change-detection-no-changes';
-            } else {
-                // Process the detected changes
-                this.logger.info(`Found ${changeResult.changes.length} changes via change detection`);
-                allFiles = await this.getFilesFromChanges(changeResult.changes);
-                syncStrategy = 'change-detection-incremental';
-            }
 
-            // Change detection succeeded, reset failure count
-            if (failureCount > 0) {
-                this.settings.changeDetectionFailureCount = 0;
-                this.settings.disableChangeDetection = false;
+                // Change detection succeeded, reset failure count
+                if (failureCount > 0) {
+                    this.settings.changeDetectionFailureCount = 0;
+                    this.settings.disableChangeDetection = false;
+                    await this.plugin.saveSettings();
+                    this.logger.debug('Change detection succeeded, reset failure count');
+                }
+            } catch (changeDetectionError) {
+                // Increment failure count and potentially disable change detection
+                const newFailureCount = failureCount + 1;
+                this.settings.changeDetectionFailureCount = newFailureCount;
+
+                if (newFailureCount >= 3) {
+                    this.settings.disableChangeDetection = true;
+                    this.logger.warn(`Change detection failed ${newFailureCount} times, disabling for future syncs`, changeDetectionError as Error);
+                } else {
+                    this.logger.warn(`Change detection failed (${newFailureCount}/3), falling back to timestamp-based sync`, changeDetectionError as Error);
+                }
+
                 await this.plugin.saveSettings();
-                this.logger.debug('Change detection succeeded, reset failure count');
+
+                listing = await this.getRemoteFilesByTimestamp(onProgress);
+                syncStrategy = listing.isComplete ? 'full' : 'fast-timestamp';
             }
-
-        } catch (changeDetectionError) {
-            // Increment failure count and potentially disable change detection
-            const newFailureCount = failureCount + 1;
-            this.settings.changeDetectionFailureCount = newFailureCount;
-
-            if (newFailureCount >= 3) {
-                this.settings.disableChangeDetection = true;
-                this.logger.warn(`Change detection failed ${newFailureCount} times, disabling for future syncs`, changeDetectionError as Error);
-            } else {
-                this.logger.warn(`Change detection failed (${newFailureCount}/3), falling back to timestamp-based sync`, changeDetectionError as Error);
-            }
-
-            await this.plugin.saveSettings();
-
-            this.logger.warn('Change detection failed, falling back to timestamp-based sync', changeDetectionError as Error);
-
-            // Fallback to timestamp-based sync
-            const canUseFastSync = Boolean(this.settings.lastSyncTime);
-            syncStrategy = canUseFastSync ? 'fast-timestamp' : 'full';
-
-            this.logger.info(`Fetching remote files from Drive folder (recursive, ${syncStrategy} sync)`, {
-                folderId: this.settings.driveFolderId,
-                lastSyncTime: this.settings.lastSyncTime,
-                strategy: syncStrategy,
-                fallbackReason: 'Change detection failed'
-            });
-
-            allFiles = await this.getRemoteFilesRecursive(
-                this.settings.driveFolderId,
-                '',
-                onProgress,
-                canUseFastSync
-            );
         }
-        }
+
+        const allFiles = listing.files;
 
         // Log all remote files found with detailed filtering analysis
         this.logger.info('Remote files discovery complete', {
             totalFiles: allFiles.length,
             strategy: syncStrategy,
-            wasBootstrapped: wasBootstrapped,
+            isComplete: listing.isComplete,
             fileDetails: allFiles.map(f => ({
                 name: f.name,
                 path: f.path || f.name,
@@ -440,7 +417,29 @@ export class SyncEngine {
             );
         });
 
-        return allFiles;
+        return listing;
+    }
+
+    /**
+     * Timestamp-based listing: only files modified since the last sync, or everything on the first sync
+     */
+    private async getRemoteFilesByTimestamp(onProgress?: SyncProgressCallback): Promise<RemoteListing> {
+        const fastSync = Boolean(this.settings.lastSyncTime);
+
+        this.logger.info(`Fetching remote files from Drive folder (recursive, ${fastSync ? 'fast-timestamp' : 'full'} sync)`, {
+            folderId: this.settings.driveFolderId,
+            lastSyncTime: this.settings.lastSyncTime
+        });
+
+        const files = await this.getRemoteFilesRecursive(
+            this.settings.driveFolderId,
+            '',
+            onProgress,
+            fastSync
+        );
+
+        // A timestamp listing never reports deletions, so it is complete only without the filter
+        return { files, isComplete: !fastSync };
     }
 
     /**
@@ -488,7 +487,8 @@ export class SyncEngine {
                 });
 
                 // If this is a folder, recursively get its contents
-                if (file.mimeType === 'application/vnd.google-apps.folder') {
+                // (in fast sync subfolders are walked below, unchanged ones included)
+                if (!fastSync && file.mimeType === 'application/vnd.google-apps.folder') {
                     this.logger.debug(`Scanning folder: ${filePath}`);
                     const subFiles = await this.getRemoteFilesRecursive(file.id, filePath, onProgress, fastSync);
                     allFiles.push(...subFiles);
@@ -502,19 +502,35 @@ export class SyncEngine {
             }
         } while (pageToken);
 
+        if (fastSync) {
+            // A folder's modifiedTime does not change when files inside it change,
+            // so every subfolder has to be walked, not only the recently modified ones
+            let folderPageToken: string | undefined;
+            do {
+                const response = await this.driveClient.listSubfolders(folderId, folderPageToken);
+                for (const folder of response.files) {
+                    const folderPath = parentPath ? `${parentPath}/${folder.name}` : folder.name;
+                    const subFiles = await this.getRemoteFilesRecursive(folder.id, folderPath, onProgress, fastSync);
+                    allFiles.push(...subFiles);
+                }
+                folderPageToken = response.nextPageToken;
+            } while (folderPageToken);
+        }
+
         return allFiles;
     }
 
     /**
      * Convert change detection results to DriveFile format
      */
-    private async getFilesFromChanges(changes: any[]): Promise<DriveFile[]> {
+    private async getFilesFromChanges(changes: any[]): Promise<{ files: DriveFile[]; removedIds: string[] }> {
         const files: DriveFile[] = [];
+        const removedIds: string[] = [];
 
         for (const change of changes) {
-            if (change.removed) {
-                // Handle removed files separately - you might want to track these for deletion
+            if (change.removed || change.file?.trashed) {
                 this.logger.debug('File was removed', { fileId: change.fileId });
+                removedIds.push(change.fileId);
                 continue;
             }
 
@@ -534,7 +550,7 @@ export class SyncEngine {
             }
         }
 
-        return files;
+        return { files, removedIds };
     }
 
     /**
@@ -750,7 +766,8 @@ export class SyncEngine {
                 if (!options.dryRun) {
                     const file = this.app.vault.getAbstractFileByPath(filePath);
                     if (file instanceof TFile) {
-                        await this.app.vault.delete(file);
+                        // System trash when allowed, otherwise the vault's .trash folder
+                        await this.app.vault.trash(file, true);
                     }
                     await this.indexManager.removeFileEntry(filePath);
                     stats.filesDeleted++;
@@ -767,7 +784,7 @@ export class SyncEngine {
                 const entry = this.indexManager.getFileEntry(filePath);
                 if (entry?.driveId) {
                     if (!options.dryRun) {
-                        await this.driveClient.deleteFile(entry.driveId);
+                        await this.driveClient.trashFile(entry.driveId);
                         await this.indexManager.removeFileEntry(filePath);
                         stats.filesDeleted++;
                     }
