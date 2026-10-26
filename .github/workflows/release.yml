@@ -4,18 +4,23 @@ on:
   push:
     branches: [production]
     paths:
-      - 'version.txt'
+      - '.abcversion.json'
       - 'manifest.json'
       - 'src/**'
       - 'scripts/**'
       - 'package.json'
 
+env:
+  # abcversion computes the version from .abcversion.json and the git history
+  ABCVERSION_VERSION: v1.2.19
+  ABCVERSION_SHA256: 32610791f90dc0cb40ad3b850d4e52398c3e5eb17535109c769b6eb6cc017564
+
 jobs:
   check-version:
     runs-on: ubuntu-latest
     outputs:
-      version: ${{ steps.semver.outputs.version }}
-      tag: ${{ steps.semver.outputs.tag }}
+      version: ${{ steps.version.outputs.version }}
+      tag: ${{ steps.version.outputs.tag }}
       should_release: ${{ steps.check.outputs.should_release }}
     steps:
       - name: Checkout
@@ -23,23 +28,31 @@ jobs:
         with:
           fetch-depth: 0
 
+      - name: Install abcversion
+        run: |
+          mkdir -p "$HOME/.local/bin"
+          curl -fsSL -o "$HOME/.local/bin/abcversion" \
+            "https://github.com/deneblab/abcversion/releases/download/${ABCVERSION_VERSION}/abcversion-linux-x64"
+          echo "${ABCVERSION_SHA256}  $HOME/.local/bin/abcversion" | sha256sum -c -
+          chmod +x "$HOME/.local/bin/abcversion"
+          echo "$HOME/.local/bin" >> "$GITHUB_PATH"
+
       - name: Get version info
-        id: semver
-        uses: ./.github/actions/semver-js
-        with:
-          config_file: 'version.txt'
-          mode: 'config-change'
-          tag_prefix: 'v'
+        id: version
+        run: |
+          VERSION=$(abcversion -p semversion)
+          echo "version=${VERSION}" >> "$GITHUB_OUTPUT"
+          echo "tag=v${VERSION}" >> "$GITHUB_OUTPUT"
 
       - name: Check if release needed
         id: check
         run: |
           # Check if tag already exists
-          if git tag -l "${{ steps.semver.outputs.tag }}" | grep -q "${{ steps.semver.outputs.tag }}"; then
-            echo "Tag ${{ steps.semver.outputs.tag }} already exists, skipping release"
+          if git tag -l "${{ steps.version.outputs.tag }}" | grep -q "${{ steps.version.outputs.tag }}"; then
+            echo "Tag ${{ steps.version.outputs.tag }} already exists, skipping release"
             echo "should_release=false" >> $GITHUB_OUTPUT
           else
-            echo "New version ${{ steps.semver.outputs.version }}, creating release"
+            echo "New version ${{ steps.version.outputs.version }}, creating release"
             echo "should_release=true" >> $GITHUB_OUTPUT
           fi
 
@@ -63,6 +76,15 @@ jobs:
 
       - name: Install dependencies
         run: npm ci
+
+      - name: Install abcversion
+        run: |
+          mkdir -p "$HOME/.local/bin"
+          curl -fsSL -o "$HOME/.local/bin/abcversion" \
+            "https://github.com/deneblab/abcversion/releases/download/${ABCVERSION_VERSION}/abcversion-linux-x64"
+          echo "${ABCVERSION_SHA256}  $HOME/.local/bin/abcversion" | sha256sum -c -
+          chmod +x "$HOME/.local/bin/abcversion"
+          echo "$HOME/.local/bin" >> "$GITHUB_PATH"
 
       - name: Build plugin
         run: npm run build:local

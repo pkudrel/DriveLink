@@ -170,7 +170,7 @@ Following the core plugin implementation, additional tooling was developed:
 **Local Build System**:
 - `scripts/build.js` - Production build orchestrator with version management
 - `scripts/bump-version.js` - Semantic versioning utility
-- Integration with existing `.github/actions/semver-js/` action
+- Version from abcversion (`.abcversion.json` + git history)
 - Automated manifest.json and versions.json updates
 
 **Release Management**:
@@ -183,13 +183,13 @@ Following the core plugin implementation, additional tooling was developed:
 
 **GitHub Actions Workflow**:
 - `.github/workflows/release.yml` - Automated release pipeline
-- Triggers on version.txt changes pushed to main branch
+- Triggers on pushes to production that change `.abcversion.json`, `src/**`, `scripts/**`, `manifest.json` or `package.json`
 - Prevents duplicate releases with tag validation
 - Uploads multiple asset formats (ZIP, individual files, checksums)
 - Generates comprehensive release notes with installation instructions
 
 **Workflow Features**:
-- Uses existing semver action for version detection
+- Uses abcversion for version detection
 - Integrates with npm build and release scripts
 - Creates GitHub releases with proper tagging
 - Handles errors gracefully with status notifications

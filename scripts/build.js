@@ -2,12 +2,21 @@
 
 /**
  * Local build script for DriveLink Obsidian Plugin
- * Uses the existing semver action to generate version info and build the plugin
+ * Gets the version from abcversion (same tool and config as CI) and builds the plugin
  */
 
 const fs = require('fs');
 const path = require('path');
-const { execSync } = require('child_process');
+const { execSync, spawnSync } = require('child_process');
+
+const ROOT = path.join(__dirname, '..');
+
+const ABCVERSION_INSTALL_HELP =
+    'abcversion computes the plugin version (https://github.com/deneblab/abcversion). Install it with one of:\n' +
+    '  curl -sSL https://raw.githubusercontent.com/deneblab/abcversion/production/install.sh | sh   (Linux x64, macOS arm64)\n' +
+    '  irm https://raw.githubusercontent.com/deneblab/abcversion/production/install.ps1 | iex       (Windows x64)\n' +
+    '  dotnet tool install --global Deneblab.AbcVersionCmd                                         (other platforms)\n' +
+    'or set ABCVERSION_BIN to the path of the binary.';
 
 // Color output utilities
 const colors = {
@@ -53,34 +62,51 @@ function exec(cmd, silent = false) {
     }
 }
 
-// Parse semver output into version info object
-function parseSemverOutput(semverOutput) {
-    const map = {};
-    for (const line of semverOutput.split(/\r?\n/)) {
-        if (!line || !line.includes('=')) continue;
-        const idx = line.indexOf('=');
-        const key = line.slice(0, idx).trim();
-        const value = line.slice(idx + 1).trim();
-        if (key) map[key] = value;
+// Read version info from abcversion; the version comes from .abcversion.json and the git history
+function readAbcVersion() {
+    const bin = process.env.ABCVERSION_BIN || 'abcversion';
+    const result = spawnSync(bin, [], { cwd: ROOT, encoding: 'utf8' });
+
+    if (result.error) {
+        if (result.error.code === 'ENOENT') {
+            throw new Error(`abcversion not found.\n${ABCVERSION_INSTALL_HELP}`);
+        }
+        throw result.error;
     }
 
-    const required = ['version', 'major', 'minor', 'patch', 'tag', 'sha', 'short_sha', 'branch', 'build_date_utc'];
-    const missing = required.filter(k => !(k in map));
-    if (missing.length) {
-        throw new Error(`Semver outputs missing keys: ${missing.join(', ')}`);
+    if (result.status !== 0) {
+        throw new Error(`abcversion failed (exit ${result.status}): ${(result.stderr || result.stdout).trim()}`);
     }
 
-    const versionInfo = {
-        version: map.version,
-        major: map.major,
-        minor: map.minor,
-        patch: map.patch,
-        tag: map.tag,
-        sha: map.sha,
-        shortSha: map.short_sha,
-        branch: map.branch,
-        buildDate: map.build_date_utc
+    let data;
+    try {
+        data = JSON.parse(result.stdout);
+    } catch {
+        throw new Error(`abcversion returned invalid JSON: ${result.stdout.trim()}`);
+    }
+
+    if (!/^\d+\.\d+\.\d+$/.test(data.SemVersion || '')) {
+        throw new Error(`abcversion returned an unexpected version: ${data.SemVersion}`);
+    }
+
+    return {
+        version: data.SemVersion,
+        major: String(data.Major),
+        minor: String(data.Minor),
+        patch: String(data.Patch),
+        tag: `v${data.SemVersion}`,
+        sha: data.GitSha,
+        shortSha: (data.GitSha || '').slice(0, 7),
+        branch: data.GitBranch,
+        buildDate: data.DateTime
     };
+}
+
+// Get version info and print it
+function getVersionInfo() {
+    logStep('1', 'Getting version information (abcversion)...');
+
+    const versionInfo = readAbcVersion();
 
     log(`📦 Version: ${colors.bright}${versionInfo.version}${colors.reset}`);
     log(`🏷️  Tag: ${versionInfo.tag}`);
@@ -89,83 +115,6 @@ function parseSemverOutput(semverOutput) {
     log(`📅 Build Date: ${versionInfo.buildDate}`);
 
     return versionInfo;
-}
-
-
-// Get version info using the semver action (single source of truth)
-function getVersionInfo() {
-    logStep('1', 'Getting version information...');
-
-    const semverScript = path.join(__dirname, '..', '.github', 'actions', 'semver-js', 'index.js');
-
-    if (!fs.existsSync(semverScript)) {
-        throw new Error('Semver action not found. Ensure .github/actions/semver-js/index.js exists.');
-    }
-
-    try {
-        // Create a temporary file to capture output since semver script uses GITHUB_OUTPUT
-        const os = require('os');
-        const tempOutputFile = path.join(os.tmpdir(), `semver-build-output-${Date.now()}.txt`);
-
-        console.log(`Debug: About to run semver script with config file: ${path.join(__dirname, '..', 'version.txt')}`);
-        console.log(`Debug: Semver script path: ${semverScript}`);
-        console.log(`Debug: Config file exists: ${fs.existsSync(path.join(__dirname, '..', 'version.txt'))}`);
-
-        // Set environment variables for the semver action
-        const env = {
-            ...process.env,
-            INPUT_CONFIG_FILE: 'version.txt',
-            INPUT_MODE: 'config-change',
-            INPUT_TAG_PREFIX: 'v',
-            GITHUB_OUTPUT: tempOutputFile
-        };
-
-        // Run the semver action script
-        const result = execSync(`node "${semverScript}"`, {
-            encoding: 'utf8',
-            env,
-            stdio: 'pipe'
-        });
-
-        console.log(`Debug: Semver output: ${result || '(empty)'}`);
-
-        let semverOutput = '';
-
-        // Try to read from GITHUB_OUTPUT file first
-        if (fs.existsSync(tempOutputFile)) {
-            semverOutput = fs.readFileSync(tempOutputFile, 'utf8');
-            fs.unlinkSync(tempOutputFile); // cleanup
-        } else if (result) {
-            // Fallback to stdout
-            semverOutput = result;
-        }
-
-        if (!semverOutput) {
-            throw new Error(
-                'Semver script produced no output. This indicates a configuration issue.\n' +
-                'Please ensure:\n' +
-                '1. version.txt exists and contains a valid version (e.g., "0.1.0")\n' +
-                '2. Git repository has commits\n' +
-                '3. .github/actions/semver-js/index.js is working correctly\n' +
-                'Run: node .github/actions/semver-js/index.js (with proper env vars) to debug'
-            );
-        }
-
-        return parseSemverOutput(semverOutput);
-    } catch (error) {
-        if (error.message.includes('Semver script produced no output')) {
-            throw error; // Re-throw our detailed error
-        }
-        throw new Error(
-            `Semver script execution failed: ${error.message}\n` +
-            'This indicates the semver-js action is not working correctly.\n' +
-            'Please ensure:\n' +
-            '1. .github/actions/semver-js/index.js exists and is executable\n' +
-            '2. Node.js can execute the script\n' +
-            '3. Git repository is properly initialized\n' +
-            'Debug with: node .github/actions/semver-js/index.js'
-        );
-    }
 }
 
 // Update manifest.json with version info
@@ -337,5 +286,5 @@ if (require.main === module) {
     main();
 }
 
-module.exports = { main, getVersionInfo, updateManifest, buildPlugin };
+module.exports = { main, getVersionInfo, readAbcVersion, updateManifest, buildPlugin };
 

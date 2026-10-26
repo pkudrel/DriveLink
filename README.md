@@ -173,7 +173,7 @@ npm run build        # Production esbuild only
 
 The plugin includes a comprehensive build system:
 
-- **Version Management**: Reads from `version.txt` for consistent versioning
+- **Version Management**: Version computed by [abcversion](https://github.com/deneblab/abcversion) from `.abcversion.json` (`BaseVersion`) and the git history, the same locally and in CI. Install it before building (see the abcversion README).
 - **Automated Builds**: Handles TypeScript compilation and asset copying
 - **Release Packaging**: Creates distributable ZIP files with checksums
 - **CI/CD Integration**: GitHub Actions for automated releases
