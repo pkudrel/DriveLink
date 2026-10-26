@@ -1,6 +1,12 @@
-import { Plugin, TFile, TAbstractFile } from 'obsidian';
+import { TFile, TAbstractFile } from 'obsidian';
+import type DriveLinkPlugin from '../main';
 import { DriveFile } from '../drive/client';
 import { shouldSyncFile } from '../utils/extension-filter';
+
+/**
+ * data.json key holding the file index
+ */
+export const INDEX_STORAGE_KEY = 'drivelink-file-index';
 
 /**
  * Local file metadata entry
@@ -52,11 +58,10 @@ export interface ChangeDetectionResult {
  * Manages local file index for synchronization
  */
 export class IndexManager {
-    private plugin: Plugin;
+    private plugin: DriveLinkPlugin;
     private index: FileIndex;
-    private indexStorageKey = 'drivelink-file-index';
 
-    constructor(plugin: Plugin) {
+    constructor(plugin: DriveLinkPlugin) {
         this.plugin = plugin;
         this.index = this.createEmptyIndex();
     }
@@ -86,8 +91,8 @@ export class IndexManager {
     async loadIndex(): Promise<void> {
         try {
             const data = await this.plugin.loadData();
-            if (data && data[this.indexStorageKey]) {
-                this.index = { ...this.createEmptyIndex(), ...data[this.indexStorageKey] };
+            if (data && data[INDEX_STORAGE_KEY]) {
+                this.index = { ...this.createEmptyIndex(), ...data[INDEX_STORAGE_KEY] };
             }
         } catch (error) {
             console.error('Failed to load file index:', error);
@@ -101,9 +106,10 @@ export class IndexManager {
     async saveIndex(): Promise<void> {
         try {
             this.index.lastUpdated = Date.now();
-            const data = await this.plugin.loadData() || {};
-            data[this.indexStorageKey] = this.index;
-            await this.plugin.saveData(data);
+            const index = this.index;
+            await this.plugin.updateData(data => {
+                data[INDEX_STORAGE_KEY] = index;
+            });
         } catch (error) {
             console.error('Failed to save file index:', error);
         }

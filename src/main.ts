@@ -1,9 +1,15 @@
 import { Notice, Plugin } from 'obsidian';
 import { DriveLinkSettings, DEFAULT_SETTINGS, DriveLinkSettingTab } from './settings';
-import { TokenManager } from './auth/token-manager';
+import { TokenManager, TOKEN_STORAGE_KEY } from './auth/token-manager';
 import { DriveClient } from './drive/client';
 import { SyncEngine } from './sync/sync-engine';
+import { INDEX_STORAGE_KEY } from './sync/index-manager';
 import { Logger, LogLevel } from './utils/logger';
+
+/**
+ * data.json keys owned by other components; never part of settings
+ */
+const NON_SETTINGS_KEYS = [INDEX_STORAGE_KEY, TOKEN_STORAGE_KEY];
 
 export default class DriveLinkPlugin extends Plugin {
         settings: DriveLinkSettings;
@@ -11,6 +17,7 @@ export default class DriveLinkPlugin extends Plugin {
         driveClient: DriveClient;
         syncEngine: SyncEngine;
         private settingsTab?: DriveLinkSettingTab;
+        private dataWriteQueue: Promise<void> = Promise.resolve();
 
 	
 	
@@ -70,11 +77,30 @@ export default class DriveLinkPlugin extends Plugin {
 	}
 
 	async loadSettings() {
-		this.settings = Object.assign({}, DEFAULT_SETTINGS, await this.loadData());
+		const data = { ...(await this.loadData() || {}) };
+		for (const key of NON_SETTINGS_KEYS) {
+			delete data[key];
+		}
+		this.settings = Object.assign({}, DEFAULT_SETTINGS, data);
 	}
 
         async saveSettings() {
-                await this.saveData(this.settings);
+                const settings = { ...this.settings };
+                await this.updateData(data => Object.assign(data, settings));
+        }
+
+        /**
+         * Read-modify-write of data.json. Writes are serialized so settings,
+         * file index and tokens never overwrite each other's keys.
+         */
+        updateData(mutate: (data: Record<string, any>) => void): Promise<void> {
+                const write = this.dataWriteQueue.then(async () => {
+                        const data = await this.loadData() || {};
+                        mutate(data);
+                        await this.saveData(data);
+                });
+                this.dataWriteQueue = write.catch(() => undefined);
+                return write;
         }
 
 

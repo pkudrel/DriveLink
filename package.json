@@ -9,6 +9,7 @@
     "build:local": "node scripts/build.js --prod",
     "build:dev": "node scripts/build.js",
     "version": "node scripts/build.js --skip-build",
+    "test": "node scripts/test.mjs",
     "release": "node scripts/release.js",
     "release:skip-build": "node scripts/release.js --skip-build",
     "release:clean": "node scripts/release.js --clean",

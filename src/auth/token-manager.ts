@@ -1,4 +1,4 @@
-import { Plugin } from 'obsidian';
+import type DriveLinkPlugin from '../main';
 import { Logger } from '../utils/logger';
 
 /**
@@ -19,18 +19,18 @@ interface TokenData {
 /**
  * Token storage keys
  */
-const TOKEN_STORAGE_KEY = 'drivelink-tokens';
+export const TOKEN_STORAGE_KEY = 'drivelink-tokens';
 
 /**
  * Manages tokens for Google Drive API access
  * Supports SimpleToken CLI integration only
  */
 export class TokenManager {
-    private plugin: Plugin;
+    private plugin: DriveLinkPlugin;
     private tokens: TokenData | null = null;
     private logger = Logger.createComponentLogger('TokenManager');
 
-    constructor(plugin: Plugin) {
+    constructor(plugin: DriveLinkPlugin) {
         this.plugin = plugin;
     }
 
@@ -224,9 +224,9 @@ export class TokenManager {
      */
     private async storeTokens(tokens: TokenData): Promise<void> {
         try {
-            const pluginData = await this.plugin.loadData() || {};
-            pluginData[TOKEN_STORAGE_KEY] = tokens;
-            await this.plugin.saveData(pluginData);
+            await this.plugin.updateData(data => {
+                data[TOKEN_STORAGE_KEY] = tokens;
+            });
         } catch (error) {
             throw new Error(`Failed to store tokens: ${error.message}`);
         }
@@ -267,9 +267,9 @@ export class TokenManager {
      */
     async clearTokens(): Promise<void> {
         try {
-            const pluginData = await this.plugin.loadData() || {};
-            delete pluginData[TOKEN_STORAGE_KEY];
-            await this.plugin.saveData(pluginData);
+            await this.plugin.updateData(data => {
+                delete data[TOKEN_STORAGE_KEY];
+            });
             this.tokens = null;
             console.log('Tokens cleared');
         } catch (error) {

@@ -1,4 +1,5 @@
-import { App, TFile, Notice, Plugin } from 'obsidian';
+import { App, TFile, Notice } from 'obsidian';
+import type DriveLinkPlugin from '../main';
 import { DriveClient, DriveFile } from '../drive/client';
 import { DriveFileOperations, UploadOptions } from '../drive/file-operations';
 import { DriveChangeDetection } from '../drive/change-detection';
@@ -62,7 +63,7 @@ export class SyncEngine {
     private indexManager: IndexManager;
     private conflictResolver: ConflictResolver;
     private settings: DriveLinkSettings;
-    private plugin: Plugin;
+    private plugin: DriveLinkPlugin;
     private isSyncing = false;
     private logger = Logger.createComponentLogger('SyncEngine');
 
@@ -70,7 +71,7 @@ export class SyncEngine {
         app: App,
         driveClient: DriveClient,
         settings: DriveLinkSettings,
-        plugin: Plugin
+        plugin: DriveLinkPlugin
     ) {
         this.app = app;
         this.driveClient = driveClient;
@@ -237,7 +238,7 @@ export class SyncEngine {
             if (stats.errors === 0) {
                 this.settings.lastSyncTime = new Date().toISOString();
                 try {
-                    await (this.plugin as any).saveSettings();
+                    await this.plugin.saveSettings();
                     this.logger.debug('Updated last sync time', {
                         lastSyncTime: this.settings.lastSyncTime
                     });
@@ -365,7 +366,7 @@ export class SyncEngine {
             if (failureCount > 0) {
                 this.settings.changeDetectionFailureCount = 0;
                 this.settings.disableChangeDetection = false;
-                await (this.plugin as any).saveSettings();
+                await this.plugin.saveSettings();
                 this.logger.debug('Change detection succeeded, reset failure count');
             }
 
@@ -381,7 +382,7 @@ export class SyncEngine {
                 this.logger.warn(`Change detection failed (${newFailureCount}/3), falling back to timestamp-based sync`, changeDetectionError as Error);
             }
 
-            await (this.plugin as any).saveSettings();
+            await this.plugin.saveSettings();
 
             this.logger.warn('Change detection failed, falling back to timestamp-based sync', changeDetectionError as Error);
 
